@@ -108,6 +108,46 @@
 
   function looksLikeMore(el) { return textOf(el).indexOf('更多') >= 0; }
 
+  // 礼物项原本是"一整条"：第一个带左圆角，最后一个带右圆角，中间都是直角。
+  // 把前面的礼物藏掉之后，最先露出来的那块就会显示成"左直角 + 右圆角"，
+  // 看起来像被切掉一角。这里把它左侧补成和右侧一样的圆角。
+  function fixFirstCorner(bar) {
+    // 「更多」不在礼物列表里，而是列表的兄弟节点（列表 + 更多 同属一条 row），
+    // 所以不能只在 list.children 里找，要在整条礼物栏里找"最左边那块可见的圆角块"。
+    // 判据：右边有圆角、左边是直角 —— 正是"本来是整条中最后一个"的特征。
+    var all;
+    try { all = bar.querySelectorAll('*'); } catch (e) { return; }
+
+    var target = null, targetX = Infinity;
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      var r;
+      try { r = el.getBoundingClientRect(); } catch (e) { continue; }
+      if (r.width < 20 || r.height < 20) continue;      // 太小的（文字、图标）忽略
+      if (el.getAttribute(HIDDEN_ATTR) === '1') continue;
+
+      var cs;
+      try { cs = getComputedStyle(el); } catch (e) { continue; }
+      if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+
+      var tl = parseFloat(cs.borderTopLeftRadius) || 0;
+      var tr = parseFloat(cs.borderTopRightRadius) || 0;
+      var bl = parseFloat(cs.borderBottomLeftRadius) || 0;
+      var br = parseFloat(cs.borderBottomRightRadius) || 0;
+
+      // 只处理"右侧圆角、左侧直角"的块
+      if (tr <= 0 || tl > 0) continue;
+
+      if (r.left < targetX) { targetX = r.left; target = { el: el, tr: tr, br: br, bl: bl }; }
+    }
+
+    if (!target) return;
+    try {
+      target.el.style.borderTopLeftRadius = target.tr + 'px';
+      if (target.br > 0 && target.bl === 0) target.el.style.borderBottomLeftRadius = target.br + 'px';
+    } catch (e) { }
+  }
+
   function isDiamond(el) {
     try {
       if (el.classList && el.classList.contains('giftRechargeContaner')) return true;
@@ -133,6 +173,7 @@
       child.setAttribute(HIDDEN_ATTR, '1');
       hidden++;
     }
+    fixFirstCorner(bar);
     if (hidden > 0) log('已隐藏 ' + hidden + ' 个礼物图标，保留「更多」与钻石');
     return hidden;
   }

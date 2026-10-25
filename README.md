@@ -1,6 +1,6 @@
 # 抖音 PC 版 —— 强制最高画质（增强版）
 
-**v1.5.1** ｜ [更新日志](CHANGELOG.md) ｜ [版本清单](versions.json) ｜ [MIT](LICENSE) ｜ [第三方引用](THIRD-PARTY-NOTICES.md)
+**v1.5.2** ｜ [更新日志](CHANGELOG.md) ｜ [版本清单](versions.json) ｜ [MIT](LICENSE) ｜ [第三方引用](THIRD-PARTY-NOTICES.md)
 
 > 本项目基于 [GUAPIXIA/Douyin_Mandatory_maximum_graphics_quality](https://github.com/GUAPIXIA/Douyin_Mandatory_maximum_graphics_quality)（MIT）派生开发，
 > 并集成了 [WhiteSevs/TamperMonkeyScript](https://github.com/WhiteSevs/TamperMonkeyScript)（GPL-3.0）中的「抖音优化」用户脚本。
