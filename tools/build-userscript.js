@@ -76,6 +76,8 @@ const parts = [
   { name: 'domutils', file: path.join(injector, 'vendor', 'domutils.umd.js') },
   { name: 'pops', file: path.join(injector, 'vendor', 'pops.umd.js') },
   { name: 'qmsg', file: path.join(injector, 'vendor', 'qmsg.umd.js') },
+  // 直播页隐藏礼物：修正上游失效的选择器（见文件头注释），与用户脚本无耦合
+  { name: 'live-gift-hide', file: path.join(injector, 'live-gift-hide.js') },
 ];
 
 const missing = parts.filter((p) => !fs.existsSync(p.file));

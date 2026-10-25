@@ -1,6 +1,6 @@
 # 抖音 PC 版 —— 强制最高画质（增强版）
 
-**v1.4.1** ｜ [更新日志](CHANGELOG.md) ｜ [版本清单](versions.json) ｜ [MIT](LICENSE) ｜ [第三方引用](THIRD-PARTY-NOTICES.md)
+**v1.5.0** ｜ [更新日志](CHANGELOG.md) ｜ [版本清单](versions.json) ｜ [MIT](LICENSE) ｜ [第三方引用](THIRD-PARTY-NOTICES.md)
 
 > 本项目基于 [GUAPIXIA/Douyin_Mandatory_maximum_graphics_quality](https://github.com/GUAPIXIA/Douyin_Mandatory_maximum_graphics_quality)（MIT）派生开发，
 > 并集成了 [WhiteSevs/TamperMonkeyScript](https://github.com/WhiteSevs/TamperMonkeyScript)（GPL-3.0）中的「抖音优化」用户脚本。
@@ -99,6 +99,21 @@ node tools\build-userscript.js        # GM 层 + 依赖 + 原版脚本 -> bundle
 
 ---
 
+## 隐藏直播间礼物
+
+进直播间后底部那一排礼物图标（小心心 / 人气票 / 蝶恋秋鹤 / 鲜花 / 玫瑰 …）会一起消失，
+点开的礼物面板、送礼全屏特效和飘屏、礼物充值入口也一并隐藏。
+**底部控制条（清晰度 / 全屏 / 音量）、弹幕、聊天区都保留**，视频画面不会被压缩。
+
+- 随「① 一键启用最高画质」一起装好（已并入 `injector/userscript.bundle.js`）
+- 只想用这一个功能：把 `injector/live-gift-hide.standalone.js` 单独注入客户端即可
+- 临时恢复：在控制台执行 `window.__DY_LIVE_GIFT_HIDE__ = false;` 后刷新
+
+> 上游脚本自带的「【屏蔽】底部的礼物栏」开关在当前版本**点了不起作用** ——
+> 它的选择器已失效（实测命中 0），本模块改用实测有效的 `.gitBarOptimizeEnabled`。
+
+---
+
 ## 文件说明
 
 | 文件 | 作用 |
@@ -111,6 +126,8 @@ node tools\build-userscript.js        # GM 层 + 依赖 + 原版脚本 -> bundle
 | `injector/dy-host.js` | GM 兼容层 + 左侧栏设置入口 |
 | `injector/userscript-loader.js` | preload 侧脚本装载器 |
 | `injector/userscript.bundle.js` | 打包产物（自动生成） |
+| `injector/live-gift-hide.js` | 直播页隐藏礼物栏（已并入 bundle） |
+| `injector/live-gift-hide.standalone.js` | 同上，独立注入版（只要这个功能时用） |
 | `injector/vendor/` | 用户脚本原文 + 4 个 UMD 依赖 |
 | `exe-src/ProcessKiller.cs` | 结束抖音进程的实现 |
 | `exe-src/PayloadComposer.cs` | 按注入方式组合 preload |

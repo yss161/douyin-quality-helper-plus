@@ -9,6 +9,35 @@
 
 ---
 
+## [1.5.0] - 2026-10-25
+
+**隐藏直播间礼物**：底部那一排礼物图标（小心心 / 人气票 / 蝶恋秋鹤 / 鲜花 …）不再显示。
+
+### 新增
+
+- **`injector/live-gift-hide.js`**：直播页隐藏礼物相关元素
+  - 底部礼物栏（截图红框那一排）、点开的礼物面板、送礼全屏特效与飘屏、礼物充值入口
+  - 保留：底部控制条（清晰度 / 全屏 / 音量）、弹幕、聊天区、底部其他按钮
+  - 纯 CSS 隐藏，不动 DOM 结构，不会破坏 React 的事件绑定
+  - MutationObserver 兜底：SPA 切房间重建 DOM 后自动补回样式
+  - 想临时恢复：控制台执行 `window.__DY_LIVE_GIFT_HIDE__ = false;` 后刷新
+- **`injector/live-gift-hide.standalone.js`**：独立注入版，只要这个功能时直接注入它
+- 该模块已并入 `injector/userscript.bundle.js`，随「① 一键启用最高画质」一起装好
+
+### 修复
+
+**上游「屏蔽底部礼物栏」开关点了没反应**
+
+| 问题 | 原因 | 处理 |
+|---|---|---|
+| `live-shieldGiftColumn` 里的选择器在当前版本已失效 | 实测两条规则命中数都是 0：`xg-controls > div:has(div[data-e2e="gifts-container"])`、`>div> div:has(>pace-island>.gitBarOptimizeEnabled)` | 新模块改用实测有效的 `.gitBarOptimizeEnabled`（命中 1）并补 `#BottomLayout` 定位 |
+
+> 实测环境：`live.douyin.com/82485729980`，确认存在
+> `.gitBarOptimizeEnabled`、`#GiftEffectLayout`、`#GiftTrayLayout`、`#GiftMenuLayout`、`.giftRechargeContaner`。
+> 隐藏后 `#BottomLayout` 高度归 0，视频区域仍为 1332x856，未出现留白或压缩。
+
+---
+
 ## [1.4.1] - 2026-10-25
 
 **开源发布**：补全第三方引用声明，准备上传 GitHub。
