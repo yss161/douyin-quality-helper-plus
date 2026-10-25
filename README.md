@@ -1,6 +1,6 @@
 # 抖音 PC 版 —— 强制最高画质（增强版）
 
-**v1.5.0** ｜ [更新日志](CHANGELOG.md) ｜ [版本清单](versions.json) ｜ [MIT](LICENSE) ｜ [第三方引用](THIRD-PARTY-NOTICES.md)
+**v1.5.1** ｜ [更新日志](CHANGELOG.md) ｜ [版本清单](versions.json) ｜ [MIT](LICENSE) ｜ [第三方引用](THIRD-PARTY-NOTICES.md)
 
 > 本项目基于 [GUAPIXIA/Douyin_Mandatory_maximum_graphics_quality](https://github.com/GUAPIXIA/Douyin_Mandatory_maximum_graphics_quality)（MIT）派生开发，
 > 并集成了 [WhiteSevs/TamperMonkeyScript](https://github.com/WhiteSevs/TamperMonkeyScript)（GPL-3.0）中的「抖音优化」用户脚本。
@@ -99,18 +99,27 @@ node tools\build-userscript.js        # GM 层 + 依赖 + 原版脚本 -> bundle
 
 ---
 
-## 隐藏直播间礼物
+## 精简直播间礼物栏
 
-进直播间后底部那一排礼物图标（小心心 / 人气票 / 蝶恋秋鹤 / 鲜花 / 玫瑰 …）会一起消失，
-点开的礼物面板、送礼全屏特效和飘屏、礼物充值入口也一并隐藏。
-**底部控制条（清晰度 / 全屏 / 音量）、弹幕、聊天区都保留**，视频画面不会被压缩。
+进直播间后，底部礼物栏只保留两样：
+
+| 保留 | 隐藏 |
+|---|---|
+| 「更多 >」按钮（点开仍是完整礼物面板） | 每个礼物图标（三生有幸 / 金秋传爱意 / 秋至情圆 / 鲜花 …） |
+| 钻石数量 | 送礼全屏特效、飘屏 |
+
+**底部控制条（清晰度 / 全屏 / 音量）、弹幕、聊天区都保留**，视频画面不会压缩。
 
 - 随「① 一键启用最高画质」一起装好（已并入 `injector/userscript.bundle.js`）
 - 只想用这一个功能：把 `injector/live-gift-hide.standalone.js` 单独注入客户端即可
 - 临时恢复：在控制台执行 `window.__DY_LIVE_GIFT_HIDE__ = false;` 后刷新
 
-> 上游脚本自带的「【屏蔽】底部的礼物栏」开关在当前版本**点了不起作用** ——
-> 它的选择器已失效（实测命中 0），本模块改用实测有效的 `.gitBarOptimizeEnabled`。
+> 判定**不写死 class 名** —— 抖音的 class 是构建时哈希的，每次发版都会变。
+> 改用文本特征：带价格的礼物项文本含「钻」，「更多」按钮文本是「更多」，
+> 另加一条结构兜底。所以版本更新后依然有效。
+>
+> 上游脚本自带的「【屏蔽】底部的礼物栏」开关在当前版本**点了不起作用**，
+> 它的选择器已失效（实测命中 0）。
 
 ---
 
