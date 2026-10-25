@@ -1,0 +1,61 @@
+MIT License
+
+Copyright (c) 2026 GUAPIXIA
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+NOTE ON THIRD-PARTY MATERIAL
+
+This repository is derived from, and contains, third-party material. See
+THIRD-PARTY-NOTICES.md for the complete list. In short:
+
+  1. Original project (MIT)
+     GUAPIXIA/Douyin_Mandatory_maximum_graphics_quality
+     https://github.com/GUAPIXIA/Douyin_Mandatory_maximum_graphics_quality
+     The quality-forcing approach, injection point, version fingerprinting and
+     the GUI/CLI skeleton come from this project. Its MIT notice above applies
+     to that material.
+
+  2. "Douyin optimization" userscript (GPL-3.0-only)
+     WhiteSevs/TamperMonkeyScript
+     https://github.com/WhiteSevs/TamperMonkeyScript
+     injector/vendor/douyin-optimize.js is an unmodified copy (version
+     2026.10.23, author WhiteSevs), embedded under GPL-3.0.
+     As a result injector/userscript.bundle.js and the packaged EXEs that
+     contain it are GPL-3.0 combined works. Redistribution requires the full
+     corresponding source (this repository) and the GPL-3.0 license text.
+
+  3. Bundled UMD libraries (MIT)
+     @whitesev/utils 2.15.2, @whitesev/domutils 2.0.12,
+     @whitesev/pops 4.2.10, qmsg 1.7.3
+     Unmodified copies under injector/vendor/, fetched by tools/fetch-vendor.ps1.
+
+  4. Douyin client files
+     This repository intentionally does NOT contain any files belonging to the
+     Douyin (抖音) desktop client or any other ByteDance product. The following
+     are excluded via .gitignore and are generated locally on the user's own
+     machine from their own installation:
+
+       - backup/   snapshots of the user's own preload.js / app.asar
+       - work/     local scratch output produced during development
+
+Reverse-engineering notes and version fingerprints in versions.json describe
+interfaces and file hashes for interoperability purposes only.
