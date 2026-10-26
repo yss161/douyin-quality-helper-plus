@@ -27,6 +27,13 @@ namespace DouyinQualityHelper
         RadioButton ModeBoth, ModeQuality, ModeScript;
         Button BtnBrowse, BtnInstall, BtnRestore, BtnCheck, BtnRefresh, BtnKill;
         Button BtnUploadScript, BtnResetScript;
+        // 更新检测相关的控件
+        Border UpdateBanner;
+        TextBlock UpdateTitle, UpdateDesc, UpdateDetail;
+        Button BtnCheckUpdate, BtnGoDownload, BtnDismissUpdate;
+
+        UpdateInfo _updateInfo;
+        bool _updateChecking;
 
         string _installRoot;
         string _hintDir;
@@ -67,6 +74,14 @@ namespace DouyinQualityHelper
             KillTitle = win.FindName("KillTitle") as TextBlock;
             KillDetail = win.FindName("KillDetail") as TextBlock;
 
+            UpdateBanner = win.FindName("UpdateBanner") as Border;
+            UpdateTitle = win.FindName("UpdateTitle") as TextBlock;
+            UpdateDesc = win.FindName("UpdateDesc") as TextBlock;
+            UpdateDetail = win.FindName("UpdateDetail") as TextBlock;
+            BtnCheckUpdate = win.FindName("BtnCheckUpdate") as Button;
+            BtnGoDownload = win.FindName("BtnGoDownload") as Button;
+            BtnDismissUpdate = win.FindName("BtnDismissUpdate") as Button;
+
             if (StatusIcon == null || BtnInstall == null || LogBox == null)
                 throw new InvalidOperationException("gui xaml missing named controls");
 
@@ -87,6 +102,19 @@ namespace DouyinQualityHelper
                 UpdateVersionInfo(_installRoot);
                 UpdateView();
             };
+
+            ApplyIconFont(win);
+
+            // 更新检测
+            if (BtnCheckUpdate != null)
+                BtnCheckUpdate.Click += (s, e) => { CheckUpdate(true); };
+            if (BtnGoDownload != null)
+                BtnGoDownload.Click += (s, e) => { OpenReleasePage(); };
+            if (BtnDismissUpdate != null)
+                BtnDismissUpdate.Click += (s, e) =>
+                {
+                    if (UpdateBanner != null) UpdateBanner.Visibility = Visibility.Collapsed;
+                };
         }
 
         public void OnLoadedInternal()
@@ -119,6 +147,9 @@ namespace DouyinQualityHelper
 
                 UpdateView();
                 StartWatcher();
+
+                // 启动后自动查一次更新（静默，失败不打扰）
+                CheckUpdate(false);
                 WriteLog("提示：douyin.exe 通常在 <抖音安装目录>\\douyin.exe");
                 // 日志框的 ScrollToEnd 会把外层 ScrollViewer 一起带下去，这里拉回顶部
                 if (_rootScroll != null) _rootScroll.ScrollToTop();
@@ -932,6 +963,179 @@ namespace DouyinQualityHelper
             {
                 WriteLog("恢复内置脚本失败：" + ex.Message, "err");
                 MessageBox.Show(_win, "恢复失败：\n\n" + ex.Message, "出错", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>
+        /// 图标字体适配。
+        ///
+        /// Win11 才有 "Segoe Fluent Icons"，Win10 只有 "Segoe MDL2 Assets"。
+        /// WPF 的 FontFamily 逗号回退在找不到第一个字体时不会自动降级，
+        /// 结果是显示成方框（缺字）。所以这里主动检测系统装了哪个，再统一设置。
+        /// 两个字体的常用图标码位基本一致，不需要改 XAML 里的 Glyph。
+        /// </summary>
+        static void ApplyIconFont(Window win)
+        {
+            string chosen = PickIconFont();
+            if (chosen == null) return;
+
+            try
+            {
+                var family = new System.Windows.Media.FontFamily(chosen);
+                ApplyIconFontTo(win, family);
+            }
+            catch { }
+        }
+
+        static string PickIconFont()
+        {
+            try
+            {
+                var installed = System.Windows.Media.Fonts.SystemFontFamilies;
+                bool hasFluent = false, hasMdl2 = false;
+
+                foreach (var f in installed)
+                {
+                    string n = f.Source;
+                    if (n.IndexOf("Segoe Fluent Icons", StringComparison.OrdinalIgnoreCase) >= 0) hasFluent = true;
+                    else if (n.IndexOf("Segoe MDL2 Assets", StringComparison.OrdinalIgnoreCase) >= 0) hasMdl2 = true;
+                }
+
+                if (hasFluent) return "Segoe Fluent Icons";
+                if (hasMdl2) return "Segoe MDL2 Assets";
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>递归把图标字体的 FontFamily 应用到所有 TextBlock 上。</summary>
+        static void ApplyIconFontTo(DependencyObject root, System.Windows.Media.FontFamily family)
+        {
+            int count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < count; i++)
+            {
+                var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+
+                var tb = child as TextBlock;
+                if (tb != null)
+                {
+                    string fam = tb.FontFamily == null ? "" : tb.FontFamily.Source;
+                    // 只替换图标字体，正文保持 YaHei
+                    if (fam.IndexOf("Segoe Fluent Icons", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        fam.IndexOf("Segoe MDL2 Assets", StringComparison.OrdinalIgnoreCase) >= 0)
+                        tb.FontFamily = family;
+                }
+
+                ApplyIconFontTo(child, family);
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // 更新检测（GitHub Releases）
+        // ---------------------------------------------------------------------
+        /// <summary>
+        /// 检查 GitHub 上有没有新版本。
+        /// 网络请求放在后台线程，结果回到 UI 线程更新界面。
+        /// manual=false 时（启动自动检查）失败只写日志，不弹窗。
+        /// </summary>
+        void CheckUpdate(bool manual)
+        {
+            if (_updateChecking) return;
+            _updateChecking = true;
+
+            if (BtnCheckUpdate != null) BtnCheckUpdate.IsEnabled = false;
+            if (manual && UpdateDetail != null) UpdateDetail.Text = "正在检查…";
+            if (UpdateBanner != null) UpdateBanner.Visibility = Visibility.Collapsed;
+
+            string current = VersionChecker.GetToolVersion();
+
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                UpdateInfo info = UpdateChecker.Check(current);
+
+                try
+                {
+                    _win.Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        ApplyUpdateResult(info, manual);
+                        _updateChecking = false;
+                        if (BtnCheckUpdate != null) BtnCheckUpdate.IsEnabled = true;
+                    }));
+                }
+                catch
+                {
+                    _updateChecking = false;
+                }
+            });
+        }
+
+        /// <summary>把检测结果反映到界面。</summary>
+        void ApplyUpdateResult(UpdateInfo info, bool manual)
+        {
+            _updateInfo = info;
+
+            if (info == null)
+            {
+                if (UpdateDetail != null) UpdateDetail.Text = "检查失败";
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(info.Error))
+            {
+                if (UpdateDetail != null) UpdateDetail.Text = "检查失败：" + info.Error;
+                if (manual) WriteLog("更新检查失败：" + info.Error, "warn");
+                else WriteLog("自动检查更新失败（不影响使用）：" + info.Error, "warn");
+                return;
+            }
+
+            string latest = string.IsNullOrEmpty(info.LatestVersion) ? "未知" : info.LatestVersion;
+            string published = info.PublishedAt != DateTime.MinValue
+                ? "（" + info.PublishedAt.ToLocalTime().ToString("yyyy-MM-dd") + "）"
+                : "";
+
+            if (info.HasUpdate)
+            {
+                if (UpdateDetail != null)
+                    UpdateDetail.Text = "有新版本 " + latest + published + "，当前 " + info.CurrentVersion;
+
+                if (UpdateBanner != null) UpdateBanner.Visibility = Visibility.Visible;
+                if (UpdateTitle != null) UpdateTitle.Text = "发现新版本 v" + latest;
+                if (UpdateDesc != null)
+                {
+                    string desc = string.IsNullOrEmpty(info.Title) ? "" : info.Title;
+                    UpdateDesc.Text = desc + (string.IsNullOrEmpty(desc) ? "" : "  ") + "点击「前往下载」打开 GitHub 发布页";
+                }
+
+                WriteLog("发现新版本：" + latest + "（当前 " + info.CurrentVersion + "）", "ok");
+            }
+            else
+            {
+                if (UpdateDetail != null)
+                    UpdateDetail.Text = "已是最新版本 " + info.CurrentVersion + published;
+                if (UpdateBanner != null) UpdateBanner.Visibility = Visibility.Collapsed;
+                WriteLog("已是最新版本 " + info.CurrentVersion, "ok");
+            }
+        }
+
+        /// <summary>打开 Release 页面（默认浏览器）。</summary>
+        void OpenReleasePage()
+        {
+            string url = (_updateInfo != null && !string.IsNullOrEmpty(_updateInfo.HtmlUrl))
+                ? _updateInfo.HtmlUrl
+                : UpdateChecker.ReleasesPageUrl;
+
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = url,
+                    UseShellExecute = true
+                });
+                WriteLog("已在浏览器中打开：" + url);
+            }
+            catch (Exception ex)
+            {
+                WriteLog("打开链接失败：" + ex.Message, "err");
             }
         }
 
