@@ -51,10 +51,20 @@ const MARK_END = '/* ==== DY_FORCE_INJECTOR_END ==== */';
 const original = fs.readFileSync(args.src, 'utf8');
 let payload = fs.readFileSync(args.payload, 'utf8');
 
-// The userscript loader always runs first: it only reads a bundle from
-// %APPDATA%\douyin\ and does nothing when the file is absent, so older
-// installs keep working unchanged.
-const loaderFile = path.join(__dirname, '..', 'injector', 'userscript-loader.js');
+// 装载器永远排在最前，并且自带一份"内置脚本"：
+//   userscript.bundle.embedded.js 把 bundle 以 gzip+base64 挂到 window 上，
+//   装载器再用它做兜底；外部 %APPDATA%\douyin\userscript.bundle.js 版本更新时优先。
+//   这样即使外面没放文件也能开箱可用，同时保留外部升级能力。
+const injectorDir = path.join(__dirname, '..', 'injector');
+const embeddedFile = path.join(injectorDir, 'userscript.bundle.embedded.js');
+const loaderFile = path.join(injectorDir, 'userscript-loader.js');
+
+if (fs.existsSync(embeddedFile)) {
+  payload = fs.readFileSync(embeddedFile, 'utf8') + '\n' + payload;
+  console.log('[i] embedded bundle: ' + Math.round(fs.statSync(embeddedFile).size / 1024) + ' KB');
+} else {
+  console.log('[!] embedded bundle missing - loader will need an external file');
+}
 if (fs.existsSync(loaderFile)) {
   payload = fs.readFileSync(loaderFile, 'utf8') + '\n' + payload;
 }

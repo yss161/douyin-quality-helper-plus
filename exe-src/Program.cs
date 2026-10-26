@@ -173,6 +173,32 @@ namespace DouyinQualityHelper
                     usBundle.Contains("__DY_HOST__") && usBundle.Contains("GM_registerMenuCommand"),
                     "len=" + usBundle.Length);
 
+                // --- 内置脚本：装载器要能自带一份，且版本号可比较 ---
+                Check("loader prefers embedded",
+                    payload.Contains("__DY_EMBEDDED_BUNDLE__") && payload.Contains("pickBundle"),
+                    null);
+
+                long builtInVer = UserscriptBundler.ReadBundleVersion(usBundle);
+                Check("bundle has version stamp", builtInVer > 20240101000000L, "v" + builtInVer);
+                Check("embedded version matches",
+                    UserscriptBundler.ReadEmbeddedBundleVersion() == builtInVer,
+                    "embedded=" + UserscriptBundler.ReadEmbeddedBundleVersion());
+
+                // 外部更新才生效：造一个更旧/更新的 bundle 验证比较逻辑
+                string olderBundle = usBundle.Replace(
+                    "__DY_BUNDLE_VERSION__ = " + builtInVer,
+                    "__DY_BUNDLE_VERSION__ = " + (builtInVer - 1000));
+                Check("older external detected",
+                    UserscriptBundler.ReadBundleVersion(olderBundle) == builtInVer - 1000, null);
+
+                string newerBundle = usBundle.Replace(
+                    "__DY_BUNDLE_VERSION__ = " + builtInVer,
+                    "__DY_BUNDLE_VERSION__ = " + (builtInVer + 1000));
+                Check("newer external detected",
+                    UserscriptBundler.ReadBundleVersion(newerBundle) == builtInVer + 1000, null);
+                Check("no-version bundle reads 0",
+                    UserscriptBundler.ReadBundleVersion("var x = 1;") == 0, null);
+
                 string xaml = AppPaths.ReadEmbeddedText("MainWindow.xaml");
                 Check("xaml embedded", xaml.Contains("BtnInstall") && xaml.Contains("LogBox"), "len=" + xaml.Length);
 

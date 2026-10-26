@@ -157,6 +157,45 @@ namespace DouyinQualityHelper
             return sb.ToString();
         }
 
+        /// <summary>
+        /// 读 bundle 里的 __DY_BUNDLE_VERSION__（构建时间戳，秒级单调递增）。
+        /// 装载器用同一个值比较"外部 vs 内置"哪份更新。没有标记的老 bundle 返回 0。
+        /// </summary>
+        public static long ReadBundleVersion(string bundle)
+        {
+            if (string.IsNullOrEmpty(bundle)) return 0;
+            const string marker = "__DY_BUNDLE_VERSION__";
+            int i = bundle.IndexOf(marker, StringComparison.Ordinal);
+            if (i < 0) return 0;
+
+            int eq = bundle.IndexOf('=', i + marker.Length);
+            if (eq < 0) return 0;
+
+            int p = eq + 1;
+            while (p < bundle.Length && (bundle[p] == ' ' || bundle[p] == '\t')) p++;
+
+            int start = p;
+            while (p < bundle.Length && bundle[p] >= '0' && bundle[p] <= '9') p++;
+            if (p <= start) return 0;
+
+            long v;
+            if (!long.TryParse(bundle.Substring(start, p - start), out v)) return 0;
+            return v;
+        }
+
+        /// <summary>
+        /// EXE 内置副本的版本号（从内嵌的 userscript.bundle.js 读）。
+        /// 读不到时返回 0，界面会因此显示"外部更新"。
+        /// </summary>
+        public static long ReadEmbeddedBundleVersion()
+        {
+            try
+            {
+                return ReadBundleVersion(AppPaths.ReadEmbeddedText("userscript.bundle.js"));
+            }
+            catch { return 0; }
+        }
+
         static string BuildMetaJson(ScriptMeta meta)
         {
             var d = new Dictionary<string, object>

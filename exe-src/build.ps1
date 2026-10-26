@@ -11,17 +11,28 @@ New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
 # Refresh embedded resources from the authoritative sources.
 #
-# payload.js = userscript-loader + quality payload, concatenated in that order.
-# The loader only reads %APPDATA%\douyin\userscript.bundle.js and stays silent
-# when that file is missing, so an install without the bundle behaves as before.
+# payload.js = embedded bundle + userscript loader + quality payload, in that order.
+#   - embedded bundle: gzip+base64 copy of userscript.bundle.js (open-box default)
+#   - loader: prefers a NEWER %APPDATA%\douyin\userscript.bundle.js, else embedded
+#   - quality payload: the 4K enforcer
 $loaderFile = Join-Path $root 'injector\userscript-loader.js'
 $payloadFile = Join-Path $root 'injector\payload.js'
+$embeddedFile = Join-Path $root 'injector\userscript.bundle.embedded.js'
 $combinedFile = Join-Path $src 'Resources\payload.js'
 
+$embeddedText = if (Test-Path $embeddedFile) { [System.IO.File]::ReadAllText($embeddedFile) } else { '' }
 $loaderText = if (Test-Path $loaderFile) { [System.IO.File]::ReadAllText($loaderFile) } else { '' }
 $payloadText = [System.IO.File]::ReadAllText($payloadFile)
-$combinedText = if ($loaderText) { $loaderText.TrimEnd() + "`n" + $payloadText } else { $payloadText }
+
+$pieces = @()
+if ($embeddedText) { $pieces += $embeddedText.TrimEnd() }
+if ($loaderText) { $pieces += $loaderText.TrimEnd() }
+$pieces += $payloadText
+$combinedText = ($pieces -join "`n") + "`n"
+
+if (-not $embeddedText) { Write-Host '  [warn] embedded bundle missing - run: node tools\build-userscript.js' }
 [System.IO.File]::WriteAllText($combinedFile, $combinedText, (New-Object System.Text.UTF8Encoding($false)))
+Write-Host ('  payload: ' + [Math]::Round((Get-Item $combinedFile).Length / 1KB) + ' KB')
 
 Copy-Item (Join-Path $root 'versions.json') (Join-Path $src 'Resources\versions.json') -Force
 

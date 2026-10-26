@@ -1,6 +1,6 @@
 # 抖音 PC 版 —— 强制最高画质（增强版）
 
-**v1.6.0** ｜ [更新日志](CHANGELOG.md) ｜ [版本清单](versions.json) ｜ [MIT](LICENSE) ｜ [第三方引用](THIRD-PARTY-NOTICES.md)
+**v1.7.0** ｜ [更新日志](CHANGELOG.md) ｜ [版本清单](versions.json) ｜ [MIT](LICENSE) ｜ [第三方引用](THIRD-PARTY-NOTICES.md)
 
 > 本项目基于 [GUAPIXIA/Douyin_Mandatory_maximum_graphics_quality](https://github.com/GUAPIXIA/Douyin_Mandatory_maximum_graphics_quality)（MIT）派生开发，
 > 并集成了 [WhiteSevs/TamperMonkeyScript](https://github.com/WhiteSevs/TamperMonkeyScript)（GPL-3.0）中的「抖音优化」用户脚本。
@@ -146,6 +146,33 @@ https://live.douyin.com/785963955393
 
 ---
 
+## 脚本内置与外部升级
+
+装载器**自带一份最新的脚本**，所以装完就能用，不需要额外放文件：
+
+| 情况 | 实际用哪份 |
+|---|---|
+| 外部文件不存在 / 损坏 | **内置**（EXE / preload 里那份） |
+| 外部版本 **比内置新** | **外部**（这就是外部升级） |
+| 外部版本 **比内置旧或相同** | **内置** |
+
+- 内置副本：`injector/userscript.bundle.embedded.js`，gzip + base64，约 409 KB
+- 版本号：构建时间戳 `yyyyMMddHHmmss`，单调递增，无需手工维护
+- 界面上「脚本」一栏会直接显示实际来源：`内置` / `外部，更新` / `外部，比内置旧 → 实际用内置`
+- 运行日志里也会写明：`using external bundle (v… > embedded v…)` 或 `using embedded v…`
+
+**怎么发布一个新脚本：**
+
+```powershell
+node tools\build-userscript.js          # 重新打包，同时刷新内置副本与版本号
+# 然后把 injector\userscript.bundle.js 覆盖到 %APPDATA%\douyin\ 即可热更新
+```
+
+如果只想热更新、不动 EXE，直接替换 `%APPDATA%\douyin\userscript.bundle.js` 就行 ——
+只要它的版本号比内置新，装载器就会自动采用它。
+
+---
+
 ## 文件说明
 
 | 文件 | 作用 |
@@ -158,6 +185,7 @@ https://live.douyin.com/785963955393
 | `injector/dy-host.js` | GM 兼容层 + 左侧栏设置入口 |
 | `injector/userscript-loader.js` | preload 侧脚本装载器 |
 | `injector/userscript.bundle.js` | 打包产物（自动生成） |
+| `injector/userscript.bundle.embedded.js` | 内置副本（gzip+base64，构建时生成） |
 | `injector/live-gift-hide.js` | 直播页隐藏礼物栏（已并入 bundle） |
 | `injector/live-gift-hide.standalone.js` | 同上，独立注入版（只要这个功能时用） |
 | `injector/live-share-clean.js` | 直播间复制链接优化（已并入 bundle） |

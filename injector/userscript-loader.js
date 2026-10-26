@@ -3,10 +3,18 @@
  *
  * 由 patch-preload.js 追加进抖音的 loose preload（isolated=false）。
  *
- * 为什么不在 preload 里直接内联整个 bundle：
- *   - 安装目录在 C:\Program Files，写它需要管理员权限；而 bundle 有 2MB、
- *     且要跟着用户脚本一起更新。把它放在 %APPDATA% 下，以后换版本不用再提权。
- *   - 页面里没有 require，所以先在 preload 侧把代码读成字符串，再交给页面 eval。
+ * 脚本来源（两者取新，外部优先）：
+ *   1. 外部：%APPDATA%\douyin\userscript.bundle.js —— 可随时替换，无需提权
+ *   2. 内置：本文件前面的 __DY_EMBEDDED_BUNDLE__（gzip+base64，由构建脚本生成）
+ *
+ *   装载器比较两者的 __DY_BUNDLE_VERSION__：
+ *     - 外部不存在 / 读不出 / 版本更旧  -> 用内置
+ *     - 外部版本较新                    -> 用外部（这就是"外部升级"能力）
+ *   所以开箱即用，同时保留以后换脚本的可能。
+ *
+ * 为什么外部放 %APPDATA% 而不是安装目录：
+ *   安装目录在 C:\Program Files，写它需要管理员权限；放在用户目录换版本不用再提权。
+ *   页面里没有 require，所以先在 preload 侧把代码读成字符串，再交给页面 eval。
  *
  * 开关（%APPDATA%\douyin\inject-mode.json）：
  *   {"scripts":true,"quality":true}   —— 两个都要
@@ -64,7 +72,42 @@
     return flags;
   }
 
-  function readBundle() {
+  // ---------------------------------------------------------------------------
+  // 内置脚本：userscript.bundle.embedded.js 把它挂到 window 上
+  // （gzip + base64，构建时生成，约 0.5MB）
+  // ---------------------------------------------------------------------------
+  function embeddedRaw() {
+    try {
+      var e = window.__DY_EMBEDDED_BUNDLE__;
+      if (e && typeof e.b64 === 'string' && e.b64.length > 1000) return e;
+    } catch (e) { }
+    return null;
+  }
+
+  function embeddedVersion() {
+    var e = embeddedRaw();
+    return e && typeof e.version === 'number' ? e.version : 0;
+  }
+
+  function gunzipBase64(b64) {
+    try {
+      var zlib = nodeRequire('zlib');
+      var buf = Buffer.from(b64, 'base64');
+      return zlib.gunzipSync(buf).toString('utf8');
+    } catch (e) {
+      emit('gunzip embedded bundle failed: ' + e);
+      return null;
+    }
+  }
+
+  // 从外部文件里读版本号（bundle 第一行附近有 __DY_BUNDLE_VERSION__）
+  function versionOf(src) {
+    if (typeof src !== 'string') return 0;
+    var m = src.match(/__DY_BUNDLE_VERSION__\s*=\s*(\d+)/);
+    return m ? parseInt(m[1], 10) : 0;
+  }
+
+  function readExternalBundle() {
     if (!nodeRequire) return null;
     try {
       var fs = nodeRequire('fs');
@@ -73,13 +116,44 @@
       if (!dir) return null;
       var file = path.join(dir, 'userscript.bundle.js');
       if (!fs.existsSync(file)) return null;
-      var stat = fs.statSync(file);
-      if (stat.size < 1000) return null;
+      if (fs.statSync(file).size < 1000) return null;
       return fs.readFileSync(file, 'utf8');
     } catch (e) {
-      emit('read bundle failed: ' + e);
+      emit('read external bundle failed: ' + e);
       return null;
     }
+  }
+
+  // 取新者：外部版本 > 内置版本 才用外部，否则用内置。
+  // 两者都没有才返回 null（此时跳过，不影响页面）。
+  function pickBundle() {
+    var ext = readExternalBundle();
+    var extVer = ext ? versionOf(ext) : 0;
+    var embVer = embeddedVersion();
+
+    if (ext && extVer > embVer) {
+      emit('using external bundle (v' + extVer + ' > embedded v' + embVer + ')');
+      return { src: ext, source: 'external', version: extVer };
+    }
+
+    var emb = embeddedRaw();
+    if (emb) {
+      var src = gunzipBase64(emb.b64);
+      if (src) {
+        var note = ext
+          ? ('external v' + extVer + ' not newer than embedded v' + embVer + ', using embedded')
+          : ('no external bundle, using embedded v' + embVer);
+        emit(note + (emb.scriptName ? ' [' + emb.scriptName + ' ' + emb.scriptVersion + ']' : ''));
+        return { src: src, source: 'embedded', version: embVer };
+      }
+    }
+
+    if (ext) {
+      emit('embedded unavailable, falling back to external v' + extVer);
+      return { src: ext, source: 'external', version: extVer };
+    }
+
+    return null;
   }
 
   function isTargetPage() {
@@ -128,11 +202,13 @@
     if (window.__DY_US_BOOTED__ || window.__DY_US_PENDING__) return;
     window.__DY_US_PENDING__ = true;
 
-    var src = readBundle();
-    if (!src) {
-      emit('no bundle at %APPDATA%\\douyin\\userscript.bundle.js, skipped');
+    var picked = pickBundle();
+    if (!picked || !picked.src) {
+      emit('no bundle available (embedded + external both missing), skipped');
       return;
     }
+    var src = picked.src;
+    var sourceTag = picked.source + ' v' + picked.version;
 
     var rounds = 0;
     var startedAt = 0;
@@ -155,10 +231,10 @@
       try {
         // 直接 eval：preload 与页面同上下文，脚本会挂在页面的 window 上
         (0, eval)(src);
-        emit('bundle executed after ' + (rounds * WAIT_STEP_MS) + 'ms wait, ' +
+        emit('bundle executed [' + sourceTag + '] after ' + (rounds * WAIT_STEP_MS) + 'ms wait, ' +
           (Date.now() - startedAt) + 'ms exec, url=' + location.href);
       } catch (e) {
-        emit('bundle failed: ' + (e && e.stack ? e.stack : e));
+        emit('bundle failed [' + sourceTag + ']: ' + (e && e.stack ? e.stack : e));
       }
     }
 

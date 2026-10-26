@@ -779,8 +779,11 @@ namespace DouyinQualityHelper
 
                 if (!File.Exists(AppPaths.UserscriptBundle))
                 {
-                    ScriptValue.Text = builtInMeta == null ? "未安装" : builtInMeta.Summary() + "（内置，未安装）";
-                    ScriptPathValue.Text = AppPaths.UserscriptBundle;
+                    // 没有外部文件也没关系：装载器会用 EXE 里内置的那份
+                    ScriptValue.Text = builtInMeta == null
+                        ? "内置脚本（未检出）"
+                        : builtInMeta.Summary() + "（内置）";
+                    ScriptPathValue.Text = "使用 EXE 内置副本（无外部文件）";
                     BtnResetScript.IsEnabled = false;
                     return;
                 }
@@ -789,11 +792,20 @@ namespace DouyinQualityHelper
                 bool builtIn;
                 var meta = UserscriptBundler.ReadBundleMeta(live, out builtIn);
 
-                string suffix = "";
+                // 装载器按 __DY_BUNDLE_VERSION__ 取新者：外部更新才生效，
+                // 外部更旧时仍跑内置。这里把判断结果如实显示出来。
+                long liveVer = UserscriptBundler.ReadBundleVersion(live);
+                long builtInVer = UserscriptBundler.ReadEmbeddedBundleVersion();
+
+                string suffix;
+                if (liveVer > builtInVer) suffix = "（外部，更新）";
+                else if (liveVer > 0 && liveVer == builtInVer) suffix = "（外部，与内置相同）";
+                else suffix = "（外部，比内置旧 → 实际用内置）";
+
                 if (builtInMeta != null && meta != null &&
                     (!string.Equals(meta.Version, builtInMeta.Version, StringComparison.Ordinal) ||
                      !string.Equals(meta.Name, builtInMeta.Name, StringComparison.Ordinal)))
-                    suffix = "（已上传）";
+                    suffix += "·已上传";
 
                 ScriptValue.Text = (meta == null ? "无法识别" : meta.Summary()) + suffix;
                 ScriptPathValue.Text = AppPaths.UserscriptBundle;

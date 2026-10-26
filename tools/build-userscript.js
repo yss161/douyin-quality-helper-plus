@@ -100,18 +100,26 @@ if (!meta.name) {
   process.exit(1);
 }
 
+// 构建版本号：装载器用它判断"外部文件 vs 内置脚本"哪份更新。
+// 取当前时间（UTC，秒级），单调递增，不需要人工维护。
+const builtAt = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);   // yyyyMMddHHmmss
+const bundleVersion = Number(builtAt);
+
 const header = [
   '/* ===========================================================================',
   ' * 抖音优化 · 客户端 bundle（自动生成，不要手改）',
   ' *',
   ' * 内容：GM 兼容层 + 左侧栏设置入口 + UMD 依赖 + 原版用户脚本',
   ' * 重新生成：node tools/build-userscript.js',
+  ' *',
+  ' * 版本：' + builtAt + '（装载器据此判断内外部脚本谁更新）',
   ' * =========================================================================*/',
 ].join('\n');
 
 let out = header + '\n';
 out += ';(function () {\n';
 out += '  var __dyBundleStart = Date.now();\n';
+out += '  try { window.__DY_BUNDLE_VERSION__ = ' + bundleVersion + '; } catch (e) {}\n';
 
 for (const p of parts) {
   const code = fs.readFileSync(p.file, 'utf8');
@@ -151,3 +159,43 @@ fs.writeFileSync(outFile, out, 'utf8');
 console.log('[ok] ' + outFile);
 console.log('[i] ' + Buffer.byteLength(out) + ' bytes from ' + (parts.length + 1) + ' parts');
 console.log('[i] script: ' + meta.name + ' v' + meta.version);
+console.log('[i] bundle version: ' + builtAt);
+
+// ---------------------------------------------------------------------------
+// 顺带生成装载器要内嵌的压缩副本（gzip + base64，约 0.5MB）。
+// 装载器以这段为"内置脚本"，外部 %APPDATA%\douyin\userscript.bundle.js
+// 存在且版本更新时才覆盖它 —— 开箱即用，同时保留外部升级。
+// ---------------------------------------------------------------------------
+if (!args["no-embed"]) {
+  const zlib = require('zlib');
+  const gz = zlib.gzipSync(Buffer.from(out, 'utf8'), { level: 9 });
+  const b64 = gz.toString('base64');
+  const chunks = [];
+  for (let i = 0; i < b64.length; i += 200) chunks.push("'" + b64.slice(i, i + 200) + "'");
+  const embedFile = path.join(injector, 'userscript.bundle.embedded.js');
+  const embedSrc = [
+    '/* ===========================================================================',
+    ' * 抖音优化 · 内置脚本副本（自动生成，不要手改）',
+    ' *',
+    ' * 由 tools/build-userscript.js 生成：',
+    ' *   injector/userscript.bundle.js -> gzip -> base64',
+    ' * 装载器（userscript-loader.js）把它注入前导，作为"内置脚本"兜底。',
+    ' *',
+    ' * bundle 版本：' + builtAt,
+    ' * 打包体积：' + Buffer.byteLength(out) + ' 字节，压缩后 ' + gz.length + ' 字节',
+    ' * =========================================================================*/',
+    'window.__DY_EMBEDDED_BUNDLE__ = {',
+    '  version: ' + bundleVersion + ',',
+    '  builtAt: ' + JSON.stringify(builtAt) + ',',
+    '  scriptName: ' + JSON.stringify(meta.name) + ',',
+    '  scriptVersion: ' + JSON.stringify(meta.version) + ',',
+    '  bytes: ' + Buffer.byteLength(out) + ',',
+    '  gzipBytes: ' + gz.length + ',',
+    '  b64:',
+    '    ' + chunks.join(' +\n    ') + '',
+    '};',
+  ].join('\n') + '\n';
+
+  fs.writeFileSync(embedFile, embedSrc, 'utf8');
+  console.log('[i] embedded: ' + embedFile + ' (' + Buffer.byteLength(embedSrc) + ' bytes, gzip ' + gz.length + ')');
+}
