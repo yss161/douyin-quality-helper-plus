@@ -7,8 +7,16 @@
     <RootNamespace>DouyinQualityHelper</RootNamespace>
     <AssemblyName>DouyinQualityHelper</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64;ARM64</Platforms>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
     <UseWinUI>true</UseWinUI>
+    <!-- 官方模板要求：Msix 工具链负责把 XAML 编译流程接进来。
+         去掉它 XamlCompiler 会静默 exit 1。 -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <!-- unpackaged：直接跑 exe，不需要 MSIX 安装 -->
     <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
@@ -19,14 +27,16 @@
     <FileVersion>2.0.0.0</FileVersion>
     <AssemblyVersion>2.0.0.0</AssemblyVersion>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    <!-- 手写 Program.Main 时，不要让 XAML 生成 App.g.i.cs 里的 Main -->
-    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250205002" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
     <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
 
   <ItemGroup>
