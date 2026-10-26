@@ -187,6 +187,27 @@ node tools\build-userscript.js          # 重新打包，同时刷新内置副�
 
 ---
 
+## 纯 JS 脚本（可脱离 EXE 使用）
+
+仓库里的独立脚本也会一起发布到 [Releases](https://github.com/yss161/douyin-quality-helper-plus/releases)，
+可以直接在 DevTools 控制台粘贴运行：
+
+| 脚本 | 作用 |
+|---|---|
+| `1-gift-hide.js` | 直播间精简礼物栏（只留「更多」与钻石） |
+| `2-share-link-clean.js` | 直播间复制链接去追踪参数 |
+| `3-quality-force.js` | 视频页强制最高画质 |
+| `4-gm-host.js` | GM 兼容层（跑油猴脚本用） |
+
+源文件在 `injector/*.standalone.js`，打包命令：
+
+```powershell
+pwsh -File tools\pack-scripts.ps1
+# 输出 dist/scripts/ 与 dist/douyin-quality-helper-v<版本>-scripts.zip
+```
+
+---
+
 ## 文件说明
 
 | 文件 | 作用 |

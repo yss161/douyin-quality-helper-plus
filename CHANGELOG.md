@@ -11,7 +11,25 @@
 
 ## [2.0.0] - 2026-10-26
 
-**界面改为 WinUI 3 / Fluent 2 视觉规范 + GitHub 自动更新检测**
+**界面改为 WinUI 3 / Fluent 2 视觉规范 + GitHub 自动更新检测 + 纯 JS 脚本发布**
+
+### 纯 JS 脚本发布
+
+新增 `tools/pack-scripts.ps1`，把独立脚本整理成可直接使用的发布物：
+
+| 发布名 | 源文件 | 作用 |
+|---|---|---|
+| `1-gift-hide.js` | `live-gift-hide.standalone.js` | 直播间精简礼物栏 |
+| `2-share-link-clean.js` | `live-share-clean.standalone.js` | 直播间复制链接去参数 |
+| `3-quality-force.js` | `payload.js` | 视频页强制最高画质 |
+| `4-gm-host.js` | `dy-host.js` | GM 兼容层 |
+
+- 每个脚本前面自动加一段头部注释（用途 / 版本 / 仓库地址 / 用法）
+- 附一份 `README.txt` 说明怎么在 DevTools 里用
+- 输出 `dist/scripts/` + `dist/douyin-quality-helper-v<版本>-scripts.zip`
+- 所有脚本**不依赖项目里的其它文件**：缺 `Qmsg` 退回 `console.log`，缺 `__dyForceLog` 同样退回
+
+已随 v2.0.0 发布到 GitHub Release：脚本包 zip + 4 个单独 `.js` + `README.txt`。
 
 ### 界面
 
