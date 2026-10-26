@@ -14,7 +14,10 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    # 必须锁 windows-2022：windows-latest 已切到 windows-2025-vs2026，
+    # 该镜像上 WindowsAppSDK 的 XamlCompiler.exe（.NET Framework 4.7.2 程序）
+    # 会静默退出（exit code 1，无任何输出），导致无法编译 WinUI 3。
+    runs-on: windows-2022
 
     steps:
       - name: 检出代码
