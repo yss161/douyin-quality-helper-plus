@@ -1,0 +1,37 @@
+name: probe-winui-template
+
+# 用官方 dotnet new 模板验证 WinUI 3 工具链是否可用。
+# 结果只用于诊断，不参与发布。
+
+on:
+  push:
+    paths:
+      - 'probe/**'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: 安装 WinUI 模板
+        shell: pwsh
+        run: |
+          dotnet new install Microsoft.WindowsAppSDK.Templates 2>&1 | Out-String
+          dotnet new list winui 2>&1 | Out-String
+      - name: 用模板创建并编译
+        shell: pwsh
+        run: |
+          dotnet new winui -n Probe -o probe 2>&1 | Out-String
+          Get-ChildItem probe | ForEach-Object { $_.Name }
+          dotnet build probe/Probe.csproj -c Release -r win-x64 -p:Platform=x64 -v:n 2>&1 | Tee-Object -FilePath probe.log
+          $code = $LASTEXITCODE
+          Write-Host ('exit: ' + $code)
+          if ($code -ne 0) {
+            Select-String -Path probe.log -Pattern 'error' | Select-Object -First 15 | ForEach-Object { $_.Line }
+            throw ('probe build failed: ' + $code)
+          }
+          Write-Host 'PROBE-OK: 官方模板可以编译，说明工具链正常'
