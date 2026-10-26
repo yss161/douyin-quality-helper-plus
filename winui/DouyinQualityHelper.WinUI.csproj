@@ -19,6 +19,8 @@
     <FileVersion>2.0.0.0</FileVersion>
     <AssemblyVersion>2.0.0.0</AssemblyVersion>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- 手写 Program.Main 时，不要让 XAML 生成 App.g.i.cs 里的 Main -->
+    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
   </PropertyGroup>
 
   <ItemGroup>
