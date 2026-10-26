@@ -39,9 +39,9 @@ namespace DouyinQualityHelper
         public MainWindow()
         {
             InitializeComponent();
-            ExtendsContentIntoTitleBar = true;
-            SetTitleBar(null);
 
+            // 用系统标题栏：自定义标题栏需要额外设拖拽区域，
+            // 而且 SetTitleBar(null) 在 WinUI 3 里会直接抛异常。
             Title = "抖音画质助手";
             try { AppWindow.Resize(new Windows.Graphics.SizeInt32 { Width = 1000, Height = 860 }); } catch { }
 
