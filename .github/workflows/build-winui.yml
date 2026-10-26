@@ -56,7 +56,7 @@ jobs:
         shell: pwsh
         run: |
           # 先单独跑一次 restore，再看详细日志定位 XamlCompiler 的真实错误
-          dotnet build winui/DouyinQualityHelper.WinUI.csproj -c Release -r win-x64 -p:WindowsAppSDKSelfContained=true -v:n 2>&1 | Tee-Object -FilePath build.log
+          dotnet build winui/DouyinQualityHelper.WinUI.csproj -c Release -r win-x64 -p:Platform=x64 -p:WindowsAppSDKSelfContained=true -v:n 2>&1 | Tee-Object -FilePath build.log
           $code = $LASTEXITCODE
           Write-Host "---- build exit: $code ----"
           if ($code -ne 0) {
@@ -71,7 +71,7 @@ jobs:
             }
             throw "build 失败，退出码 $code"
           }
-          dotnet publish winui/DouyinQualityHelper.WinUI.csproj -c Release -r win-x64 --self-contained true -p:WindowsAppSDKSelfContained=true -o publish/x64
+          dotnet publish winui/DouyinQualityHelper.WinUI.csproj -c Release -r win-x64 -p:Platform=x64 --self-contained true -p:WindowsAppSDKSelfContained=true -o publish/x64
 
       - name: 整理产物
         shell: pwsh
