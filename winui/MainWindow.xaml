@@ -5,7 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="抖音画质助手">
 
-    <Grid x:Name="RootGrid" Background="{ThemeResource AppBackgroundBrush}">
+    <Grid x:Name="RootGrid" Background="{StaticResource AppBackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -23,14 +23,14 @@
             <StackPanel Grid.Column="0" Spacing="2">
                 <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                     <TextBlock Text="抖音画质助手" FontSize="22" FontWeight="SemiBold"
-                               Foreground="{ThemeResource PrimaryTextBrush}" VerticalAlignment="Center" />
+                               Foreground="{StaticResource PrimaryTextBrush}" VerticalAlignment="Center" />
                     <Border Background="#0F6CBD" CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
                         <TextBlock x:Name="ToolVersionText" Text="v2.0.0" FontSize="11"
                                    Foreground="White" FontWeight="SemiBold" />
                     </Border>
                 </StackPanel>
                 <TextBlock Text="让每个视频都用它能提供的最高清晰度播放（4K / 2K / 1080P）"
-                           FontSize="12" Foreground="{ThemeResource SecondaryTextBrush}" />
+                           FontSize="12" Foreground="{StaticResource SecondaryTextBrush}" />
             </StackPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
@@ -42,7 +42,7 @@
                          IsClosable="True"
                          Width="360" />
                 <TextBlock x:Name="RunBadge" Text="检测中…" FontSize="13" FontWeight="SemiBold"
-                           Foreground="{ThemeResource SecondaryTextBrush}" VerticalAlignment="Center" />
+                           Foreground="{StaticResource SecondaryTextBrush}" VerticalAlignment="Center" />
             </StackPanel>
         </Grid>
 
@@ -95,12 +95,12 @@
                         </Grid.ColumnDefinitions>
                         <FontIcon x:Name="StatusIcon" Grid.Column="0" Glyph="&#xE9CE;" FontSize="26"
                                   Margin="0,0,14,0" VerticalAlignment="Center"
-                                  Foreground="{ThemeResource SecondaryTextBrush}" />
+                                  Foreground="{StaticResource SecondaryTextBrush}" />
                         <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
                             <TextBlock x:Name="StatusText" Text="正在检测…" FontSize="16" FontWeight="SemiBold"
-                                       Foreground="{ThemeResource PrimaryTextBrush}" TextWrapping="Wrap" />
+                                       Foreground="{StaticResource PrimaryTextBrush}" TextWrapping="Wrap" />
                             <TextBlock x:Name="StatusDetail" Text="" FontSize="12"
-                                       Foreground="{ThemeResource SecondaryTextBrush}" TextWrapping="Wrap" />
+                                       Foreground="{StaticResource SecondaryTextBrush}" TextWrapping="Wrap" />
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -139,7 +139,7 @@
                         <RadioButton x:Name="ModeScript" GroupName="InjectMode"
                                      Content="只装抖音优化脚本（不强制画质）" />
 
-                        <Border Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="6" Padding="14,12">
+                        <Border Background="{StaticResource SubtleFillBrush}" CornerRadius="6" Padding="14,12">
                             <StackPanel Spacing="8">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -158,7 +158,7 @@
                                     <TextBlock Grid.Column="0" Text="位置" Style="{StaticResource FieldLabelStyle}" Width="48" />
                                     <TextBlock Grid.Column="1" x:Name="ScriptPathValue" Text="-"
                                                Style="{StaticResource FieldValueStyle}" FontSize="12"
-                                               Foreground="{ThemeResource SecondaryTextBrush}" />
+                                               Foreground="{StaticResource SecondaryTextBrush}" />
                                 </Grid>
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <Button x:Name="BtnUploadScript" Height="32" Padding="12,0">
@@ -181,7 +181,7 @@
                     <StackPanel Spacing="10">
                         <TextBlock Text="抖音位置" Style="{StaticResource SectionTitleStyle}" />
 
-                        <Grid ColumnSpacing="8">
+                        <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
@@ -194,7 +194,7 @@
                             </Button>
                         </Grid>
 
-                        <Grid RowSpacing="6" ColumnSpacing="8">
+                        <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -235,7 +235,7 @@
                         <StackPanel Grid.Column="0" Spacing="3" VerticalAlignment="Center">
                             <TextBlock Text="软件更新" Style="{StaticResource SectionTitleStyle}" Margin="0" />
                             <TextBlock x:Name="UpdateDetail" Text="尚未检查"
-                                       FontSize="12" Foreground="{ThemeResource SecondaryTextBrush}"
+                                       FontSize="12" Foreground="{StaticResource SecondaryTextBrush}"
                                        TextWrapping="Wrap" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
@@ -257,8 +257,8 @@
                 </Border>
 
                 <!-- 日志 -->
-                <Border Background="{ThemeResource CardBackgroundBrush}" CornerRadius="8"
-                        BorderThickness="1" BorderBrush="{ThemeResource CardBorderBrush}"
+                <Border Background="{StaticResource CardBackgroundBrush}" CornerRadius="8"
+                        BorderThickness="1" BorderBrush="{StaticResource CardBorderBrush}"
                         Padding="12" Margin="0,0,0,12" MinHeight="140">
                     <Grid>
                         <Grid.RowDefinitions>
@@ -266,7 +266,7 @@
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <TextBlock Grid.Row="0" Text="运行记录" FontSize="12"
-                                   Foreground="{ThemeResource SecondaryTextBrush}" Margin="2,0,0,6" />
+                                   Foreground="{StaticResource SecondaryTextBrush}" Margin="2,0,0,6" />
                         <TextBox x:Name="LogBox" Grid.Row="1" IsReadOnly="True"
                                  AcceptsReturn="True" TextWrapping="Wrap"
                                  FontFamily="Consolas, Cascadia Mono, Microsoft YaHei UI" FontSize="12"
@@ -280,9 +280,9 @@
 
         <!-- ============ 底部状态栏 ============ -->
         <Border Grid.Row="3" Padding="24,8,24,10"
-                Background="{ThemeResource LayerFillColorDefaultBrush}">
+                Background="{StaticResource SubtleFillBrush}">
             <TextBlock x:Name="FootText" Text="" FontSize="11.5"
-                       Foreground="{ThemeResource SecondaryTextBrush}"
+                       Foreground="{StaticResource SecondaryTextBrush}"
                        TextTrimming="CharacterEllipsis" />
         </Border>
     </Grid>
