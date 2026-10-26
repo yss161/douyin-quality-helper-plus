@@ -63,11 +63,29 @@ jobs:
             Write-Host "==== 相关错误行 ===="
             Select-String -Path build.log -Pattern 'error|XamlCompiler|Xaml.*error' -SimpleMatch:$false |
               Select-Object -First 40 | ForEach-Object { $_.Line }
-            # XamlCompiler 会写 input/output json，把 output 里的错误也打出来
-            $outJson = Get-ChildItem -Path winui/obj -Recurse -Filter 'output.json' -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($outJson) {
-              Write-Host "==== XamlCompiler output.json ===="
-              Get-Content $outJson.FullName -Raw | Select-Object -First 1
+
+            # XamlCompiler 把真实原因写到 output.json / 或者根本不写（崩溃）。
+            # 这里把 obj 下所有相关文件都倒出来，并手动再跑一次拿 stderr。
+            Write-Host "==== obj 目录 ===="
+            Get-ChildItem -Path winui/obj -Recurse -Filter '*.json' -ErrorAction SilentlyContinue |
+              Select-Object -First 10 | ForEach-Object { $_.FullName }
+
+            $inJson = Get-ChildItem -Path winui/obj -Recurse -Filter 'input.json' -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($inJson) {
+              Write-Host "==== 手动执行 XamlCompiler ===="
+              $xc = Get-ChildItem -Path "$env:USERPROFILE/\.nuget/packages/microsoft.windowsappsdk" -Recurse -Filter 'XamlCompiler.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($xc) {
+                $outFile = Join-Path $inJson.DirectoryName 'manual-output.json'
+                Write-Host ("exe: " + $xc.FullName)
+                & $xc.FullName $inJson.FullName $outFile 2>&1 | ForEach-Object { Write-Host ("  XC> " + $_) }
+                Write-Host ("exit: " + $LASTEXITCODE)
+                if (Test-Path $outFile) {
+                  Write-Host "==== manual-output.json ===="
+                  Get-Content $outFile -Raw
+                }
+              } else {
+                Write-Host '找不到 XamlCompiler.exe'
+              }
             }
             throw "build 失败，退出码 $code"
           }
