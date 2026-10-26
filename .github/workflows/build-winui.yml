@@ -55,6 +55,22 @@ jobs:
       - name: 编译（x64，自包含）
         shell: pwsh
         run: |
+          # 先单独跑一次 restore，再看详细日志定位 XamlCompiler 的真实错误
+          dotnet build winui/DouyinQualityHelper.WinUI.csproj -c Release -r win-x64 -p:WindowsAppSDKSelfContained=true -v:n 2>&1 | Tee-Object -FilePath build.log
+          $code = $LASTEXITCODE
+          Write-Host "---- build exit: $code ----"
+          if ($code -ne 0) {
+            Write-Host "==== 相关错误行 ===="
+            Select-String -Path build.log -Pattern 'error|XamlCompiler|Xaml.*error' -SimpleMatch:$false |
+              Select-Object -First 40 | ForEach-Object { $_.Line }
+            # XamlCompiler 会写 input/output json，把 output 里的错误也打出来
+            $outJson = Get-ChildItem -Path winui/obj -Recurse -Filter 'output.json' -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($outJson) {
+              Write-Host "==== XamlCompiler output.json ===="
+              Get-Content $outJson.FullName -Raw | Select-Object -First 1
+            }
+            throw "build 失败，退出码 $code"
+          }
           dotnet publish winui/DouyinQualityHelper.WinUI.csproj -c Release -r win-x64 --self-contained true -p:WindowsAppSDKSelfContained=true -o publish/x64
 
       - name: 整理产物
