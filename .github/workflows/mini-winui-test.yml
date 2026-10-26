@@ -1,5 +1,8 @@
 name: mini-winui-test
 on:
+  push:
+    paths:
+      - 'mini-probe/**'
   workflow_dispatch:
 jobs:
   mini:
