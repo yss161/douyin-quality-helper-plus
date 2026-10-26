@@ -9,6 +9,40 @@
 
 ---
 
+## [1.6.0] - 2026-10-26
+
+**直播间复制链接优化**：点「分享 → 复制链接」拿到的是干净链接，不再带追踪参数。
+
+### 新增
+
+- **`injector/live-share-clean.js`**：直播间的复制链接优化
+  - 拦截分享面板里「复制链接」的点击，自己写入清洗后的链接，并阻止页面原本的复制
+  - `https://live.douyin.com/785963955393?enter_from=web_share&share_token=xyz`
+    → `https://live.douyin.com/785963955393`
+  - 链接来源按可靠性排序：React fiber 的 `shareInfo` / `roomInfo` / `web_rid`，
+    退回到地址栏 `pathname`；**两者都拿不到就不干预**，让页面按原样复制
+  - 剪贴板优先 `navigator.clipboard.writeText`，失败退回 `execCommand('copy')`
+- **`injector/live-share-clean.standalone.js`**：独立注入版，只要这个功能时用
+
+### 说明
+
+上游脚本的「修改复制链接内容」只处理**视频页**
+（选择器写死 `div[data-e2e="video-share-container"]`），直播间是另一套 DOM，
+所以直播页此前拿到的一直是带参数的原始链接。本模块补上这块。
+
+### 单测（19 项，全部通过）
+
+```
+链接清洗 9 项：直播链接去参数 / 带 www / 短链 / 视频链接 / 非抖音域名不动 /
+              空值 / null / 非法输入
+fiber 提取 5 项：shareInfo.shareUrl / roomInfo.shareUrl / web_rid 拼接 /
+                 无信息 / 非抖音域名忽略
+按钮识别 5 项：复制链接 / 带图标 / 非目标 / 超大容器 / null
+端到端：点击「复制链接」→ 剪贴板得到干净链接，且原逻辑被阻止
+```
+
+---
+
 ## [1.5.2] - 2026-10-25
 
 **修：「更多」左侧变成直角**，补成和右侧一样的圆角。

@@ -5,5 +5,5 @@ using System.Reflection;
 [assembly: AssemblyDescription("让抖音 PC 版每个视频都按可用的最高清晰度播放")]
 [assembly: AssemblyCompany("")]
 [assembly: AssemblyCopyright("MIT")]
-[assembly: AssemblyVersion("1.5.2.0")]
-[assembly: AssemblyFileVersion("1.5.2.0")]
+[assembly: AssemblyVersion("1.6.0.0")]
+[assembly: AssemblyFileVersion("1.6.0.0")]

@@ -1,6 +1,6 @@
 # 抖音 PC 版 —— 强制最高画质（增强版）
 
-**v1.5.2** ｜ [更新日志](CHANGELOG.md) ｜ [版本清单](versions.json) ｜ [MIT](LICENSE) ｜ [第三方引用](THIRD-PARTY-NOTICES.md)
+**v1.6.0** ｜ [更新日志](CHANGELOG.md) ｜ [版本清单](versions.json) ｜ [MIT](LICENSE) ｜ [第三方引用](THIRD-PARTY-NOTICES.md)
 
 > 本项目基于 [GUAPIXIA/Douyin_Mandatory_maximum_graphics_quality](https://github.com/GUAPIXIA/Douyin_Mandatory_maximum_graphics_quality)（MIT）派生开发，
 > 并集成了 [WhiteSevs/TamperMonkeyScript](https://github.com/WhiteSevs/TamperMonkeyScript)（GPL-3.0）中的「抖音优化」用户脚本。
@@ -123,6 +123,29 @@ node tools\build-userscript.js        # GM 层 + 依赖 + 原版脚本 -> bundle
 
 ---
 
+## 直播间复制链接优化
+
+直播间点「分享 → 复制链接」，拿到的是干净链接：
+
+```
+https://live.douyin.com/785963955393?enter_from=web_share&share_token=xyz
+                              ↓
+https://live.douyin.com/785963955393
+```
+
+- 随「① 一键启用最高画质」一起装好（已并入 `injector/userscript.bundle.js`）
+- 只想用这一个功能：把 `injector/live-share-clean.standalone.js` 单独注入客户端即可
+- 临时关闭：在控制台执行 `window.__DY_LIVE_SHARE_CLEAN__ = false;` 后刷新
+
+> 上游脚本的「修改复制链接内容」只处理**视频页**（选择器写死
+> `div[data-e2e="video-share-container"]`），直播间是另一套 DOM，所以直播页
+> 此前拿到的仍是带参数的原始链接。本模块是补上这块。
+>
+> 链接来源按可靠性排序：React fiber 的 `shareInfo` / `roomInfo` / `web_rid`，
+> 退回到地址栏。**两者都拿不到就不干预**，让页面按原样复制，不会让你复制失败。
+
+---
+
 ## 文件说明
 
 | 文件 | 作用 |
@@ -137,6 +160,8 @@ node tools\build-userscript.js        # GM 层 + 依赖 + 原版脚本 -> bundle
 | `injector/userscript.bundle.js` | 打包产物（自动生成） |
 | `injector/live-gift-hide.js` | 直播页隐藏礼物栏（已并入 bundle） |
 | `injector/live-gift-hide.standalone.js` | 同上，独立注入版（只要这个功能时用） |
+| `injector/live-share-clean.js` | 直播间复制链接优化（已并入 bundle） |
+| `injector/live-share-clean.standalone.js` | 同上，独立注入版 |
 | `injector/vendor/` | 用户脚本原文 + 4 个 UMD 依赖 |
 | `exe-src/ProcessKiller.cs` | 结束抖音进程的实现 |
 | `exe-src/PayloadComposer.cs` | 按注入方式组合 preload |

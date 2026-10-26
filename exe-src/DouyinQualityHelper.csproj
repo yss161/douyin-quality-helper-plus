@@ -12,9 +12,9 @@
     <AssemblyTitle>抖音画质助手</AssemblyTitle>
     <Product>抖音画质助手</Product>
     <Description>让抖音 PC 版每个视频都按可用的最高清晰度播放</Description>
-    <Version>1.5.2</Version>
-    <FileVersion>1.5.2.0</FileVersion>
-    <AssemblyVersion>1.5.2.0</AssemblyVersion>
+    <Version>1.6.0</Version>
+    <FileVersion>1.6.0.0</FileVersion>
+    <AssemblyVersion>1.6.0.0</AssemblyVersion>
     <Deterministic>true</Deterministic>
     <DebugType>none</DebugType>
     <Optimize>true</Optimize>
