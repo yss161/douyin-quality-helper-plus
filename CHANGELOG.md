@@ -9,6 +9,63 @@
 
 ---
 
+## [2.0.1] - 2026-10-28
+
+**修复：直播间「复制链接」与「礼物栏精简」两个功能失效**
+
+两个功能在抖音客户端里都是**静默失效**（无报错、无日志、外观正常），原因各不相同。
+
+### 复制链接：改为剪贴板拦截
+
+**根因**（从 `dy-force.log` 得到实证）：
+
+- 客户端直播页的文档 URL 是 `live.douyin.com/preload-living`，**不是** `live.douyin.com/<房间号>`
+- 真实房间是 SPA 内跳转，文档不重新加载，因此 preload 只在那一次执行
+- 旧实现靠 `location.pathname` 取房间号，在客户端的 URL 下永远拿不到，
+  `fromLocation()` 恒为 null，链路直接断掉
+- 同时靠文本找「复制链接」按钮，分享面板层级深且常变，命中率低
+
+**改法**：不再依赖 DOM 结构，改成三层剪贴板拦截：
+
+| 层 | 拦什么 |
+|---|---|
+| A | `document` / `window` 的 `copy` 事件（Ctrl+C、`execCommand('copy')` 都走这里） |
+| B | `navigator.clipboard.writeText`（页面直接写剪贴板的情况） |
+| C | 隐藏 textarea 的 `selectionStart/End`（页面常用这种写法，此时 `getSelection()` 是空的） |
+
+清洗只做「去掉 query 与 hash」，房间号用页面自己给的那个，不需要猜：
+
+```
+https://live.douyin.com/928003489865?enter_from_merge=link_share&enter_method=copy_link_share&action_type=click&from=web_code_link
+  ->  https://live.douyin.com/928003489865
+```
+
+### 礼物栏：改为纯文本特征判定
+
+**根因**：旧实现靠 `.gitBarOptimizeEnabled` 定位礼物栏，这个 class 在客户端新版已不存在
+（日志里从未打印「已隐藏 N 个」，整块逻辑静默 no-op）。它最后一次工作还是 10-25。
+
+**改法**：彻底与 class 名解耦，改用「文本特征 + 结构」：
+
+1. 找所有文本长度不超过 14 且含「钻」的叶子块（礼物定价，如 `9999钻`、`1钻`）
+2. 往上找到「至少 2 个带价子项 + 有『更多』子项」的容器，即礼物栏
+3. 栏内除「更多」和 `.giftRechargeContaner` 之外的同级项全部打标记隐藏
+4. 保底规则：没有「更多」但有至少 3 个带价项 + 钻石，也算礼物栏
+
+因为抖音的 class 是构建时哈希的（`xAG9cqUC` / `saw7uCUW` 等）每次发版都变，只有文本稳定。
+
+### 验证
+
+| 测试 | 结果 |
+|---|---|
+| 复制链接清洗（含用户给的真实链接） | 10 项全通过 |
+| 礼物栏定位（完整栏 / 无更多 / 空页 / 只渲染 1 个） | 7 项全通过 |
+
+两个模块的日志也加强了：启动时会打印当前 URL 与首轮隐藏数量，
+以后再失效可以直接从 `%APPDATA%\douyin\dy-force.log` 看出来。
+
+---
+
 ## [2.0.0] - 2026-10-26
 
 **界面改为 WinUI 3 / Fluent 2 视觉规范 + GitHub 自动更新检测 + 纯 JS 脚本发布**

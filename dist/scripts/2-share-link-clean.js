@@ -1,6 +1,6 @@
 /* ============================================================================
  * 抖音画质助手 · 直播间：优化复制链接
- * 版本 2.0.0 ｜ https://github.com/yss161/douyin-quality-helper-plus
+ * 版本 2.0.1 ｜ https://github.com/yss161/douyin-quality-helper-plus
  *
  * 复制的链接去掉追踪参数
  *

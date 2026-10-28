@@ -1,6 +1,6 @@
 /* ============================================================================
  * 抖音画质助手 · 直播间：精简礼物栏
- * 版本 2.0.0 ｜ https://github.com/yss161/douyin-quality-helper-plus
+ * 版本 2.0.1 ｜ https://github.com/yss161/douyin-quality-helper-plus
  *
  * 隐藏礼物图标，只留「更多」与钻石
  *

@@ -4,11 +4,11 @@
  * 内容：GM 兼容层 + 左侧栏设置入口 + UMD 依赖 + 原版用户脚本
  * 重新生成：node tools/build-userscript.js
  *
- * 版本：20261026130119（装载器据此判断内外部脚本谁更新）
+ * 版本：20261028003818（装载器据此判断内外部脚本谁更新）
  * =========================================================================*/
 ;(function () {
   var __dyBundleStart = Date.now();
-  try { window.__DY_BUNDLE_VERSION__ = 20261026130119; } catch (e) {}
+  try { window.__DY_BUNDLE_VERSION__ = 20261028003818; } catch (e) {}
 
 /* ==== dy-host ==== */
 /* ============================================================================
@@ -29236,21 +29236,23 @@
 /* ============================================================================
  * 抖音直播 —— 礼物栏精简（只保留「更多」二级菜单 + 钻石）
  *
- * 效果：底部礼物栏里的每个礼物图标（三生有幸 / 金秋传爱意 / 秋至情圆 / 鲜花 …）
- *       全部隐去，只留下：
+ * 效果：底部礼物栏里的每个礼物图标全部隐去，只留下：
  *         - 「更多 >」按钮  —— 点开就是完整礼物面板（二级菜单）
  *         - 钻石数量        —— 充值/余额显示
  *
- * 为什么不写死 class 名：
- *   抖音的 class 是构建时哈希的（xAG9cqUC / saw7uCUW …），每次发版都会变。
- *   这里改用「文本特征」判定：
- *     带价格的礼物项 -> 文本里有「钻」（如 9999钻、1500钻）
- *     「更多」按钮   -> 文本是「更多」
- *     钻石           -> .giftRechargeContaner 及其容器
- *   所以版本更新后依然有效。
+ * 【为什么不再依赖 .gitBarOptimizeEnabled】
+ * 旧版靠这个 class 定位礼物栏。客户端新版本里它已经不存在（日志里从未打印
+ * 「已隐藏 N 个」），所以整块逻辑静默失效。
+ *
+ * 现在改成完全的「文本特征 + 结构」判定，与 class 名解耦：
+ *   1. 先找页面里所有含「钻」的叶子块（礼物项的定价文本，如 9999钻、1钻）
+ *   2. 它们的共同祖先，且子节点里有「更多」的，就是礼物栏
+ *   3. 栏内除「更多」和钻石之外的同级项，全部打标记隐藏
+ *
+ * 因为抖音的 class 是构建时哈希的（xAG9cqUC / saw7uCUW …）每次发版都会变，
+ * 只有文本是稳定的。
  *
  * 另外仍然隐藏：送礼全屏特效、飘屏。
- * 保留：礼物面板 #GiftMenuLayout（否则点「更多」没反应）、底部控制条、弹幕、聊天区。
  *
  * 临时恢复：window.__DY_LIVE_GIFT_HIDE__ = false; 刷新即可。
  * ==========================================================================*/
@@ -29271,11 +29273,12 @@
     } catch (e) { }
   }
 
-  // CSS 只负责"整层"的东西；单个礼物项由 JS 按文本判定后打标记
+  function enabled() {
+    return window.__DY_LIVE_GIFT_HIDE__ !== false;
+  }
+
   var CSS = [
     '[' + HIDDEN_ATTR + '="1"] { display: none !important; }',
-
-    /* 送礼全屏特效 / 飘屏。注意保留 #GiftMenuLayout，否则「更多」点不开 */
     '#GiftEffectLayout, #GiftTrayLayout { display: none !important; }',
     'div[id^="gift_effect_bg_"] { display: none !important; }',
     '.GiftEffectPlugin, .GiftTrayPlugin { display: none !important; }'
@@ -29291,65 +29294,84 @@
     } catch (e) { return false; }
   }
 
-  // 用 textContent 而不是 innerText：
-  //   - innerText 依赖布局，未渲染 / 隐藏的节点会返回空串，判不出来
-  //   - innerText 会强制重排，在 MutationObserver 里反复调用很伤性能
+  // textContent 而不是 innerText：后者依赖布局，未渲染就返回空
   function textOf(el) {
     try { return (el.textContent || '').replace(/\s+/g, ''); } catch (e) { return ''; }
   }
 
-  // 在礼物栏里找"礼物项列表"：子女里带「钻」最多的那个容器。
-  // 礼物项可能直接挂在 .gitBarOptimizeEnabled 下，也可能在更深一层的列表里，
-  // 所以候选集合要把 bar 自己也算进去。
-  function findItemList(bar) {
-    var best = null, bestScore = 0;
-    var nodes;
-    try { nodes = bar.querySelectorAll('*'); } catch (e) { return null; }
-
-    function consider(n) {
-      if (!n || n.children.length < 2) return;
-      var score = 0;
-      for (var j = 0; j < n.children.length; j++) {
-        if (textOf(n.children[j]).indexOf('钻') >= 0) score++;
-      }
-      if (score > bestScore) { bestScore = score; best = n; }
-    }
-
-    consider(bar);                                  // 先看 bar 自己
-    for (var i = 0; i < nodes.length; i++) consider(nodes[i]);
-
-    return bestScore >= 2 ? best : null;   // 至少两个带价格的礼物，才当成列表
+  // 礼物项的定价文本：整段里只有「数字+钻」或含「钻」
+  function hasPrice(el) {
+    var t = textOf(el);
+    if (t.indexOf('钻') < 0) return false;
+    if (t.length > 14) return false;          // 太长的多半是整块容器
+    return true;
   }
 
-  // 兜底：拿不到价格文本时（含「钻」字样可能变化），
-  // 就按"除「更多」和钻石之外全部隐藏"处理 —— 但不能少于 3 个子项，避免误伤
-  function findItemListByStructure(bar) {
-    var nodes = [];
-    try { nodes = bar.querySelectorAll('*'); } catch (e) { return null; }
-    var best = null, bestCount = 0;
-    function consider(n) {
-      if (!n || n.children.length < 3) return;
-      var hasMore = false, hasDiamond = false;
-      for (var j = 0; j < n.children.length; j++) {
-        if (looksLikeMore(n.children[j])) hasMore = true;
-        if (isDiamond(n.children[j])) hasDiamond = true;
-      }
-      if (hasMore && n.children.length > bestCount) { bestCount = n.children.length; best = n; }
-    }
-    consider(bar);
-    for (var i = 0; i < nodes.length; i++) consider(nodes[i]);
-    return best;
+  function looksLikeMore(el) {
+    var t = textOf(el);
+    if (t.length > 6) return false;
+    return t.indexOf('更多') >= 0;
   }
 
-  function looksLikeMore(el) { return textOf(el).indexOf('更多') >= 0; }
+  function isDiamond(el) {
+    try {
+      if (el.classList && el.classList.contains('giftRechargeContaner')) return true;
+      if (el.querySelector && el.querySelector('.giftRechargeContaner')) return true;
+    } catch (e) { }
+    return false;
+  }
 
-  // 礼物项原本是"一整条"：第一个带左圆角，最后一个带右圆角，中间都是直角。
-  // 把前面的礼物藏掉之后，最先露出来的那块就会显示成"左直角 + 右圆角"，
-  // 看起来像被切掉一角。这里把它左侧补成和右侧一样的圆角。
+  // ---------------------------------------------------------------------
+  // 找礼物栏：含「钻」的叶子块的共同祖先里，子节点带「更多」的那个
+  // ---------------------------------------------------------------------
+  function findGiftBar() {
+    var all;
+    try { all = document.querySelectorAll('div, li, span'); } catch (e) { return null; }
+
+    // 收集所有「带价格的礼物项」
+    var items = [];
+    for (var i = 0; i < all.length && items.length < 60; i++) {
+      if (hasPrice(all[i])) items.push(all[i]);
+    }
+    if (items.length < 2) return null;
+
+    // 从某个礼物项往上走，第一个「子节点里既有礼物项又有「更多」」的容器就是礼物栏
+    var start = items[0];
+    var node = start;
+    for (var depth = 0; node && depth < 8; depth++) {
+      var kids = node.children;
+      var priceKids = 0, hasMore = false, hasDiamond = false;
+
+      for (var k = 0; k < kids.length; k++) {
+        if (hasPrice(kids[k])) priceKids++;
+        if (looksLikeMore(kids[k])) hasMore = true;
+        if (isDiamond(kids[k])) hasDiamond = true;
+      }
+
+      // 礼物栏的特征：至少 2 个带价礼物 + 有「更多」入口
+      if (priceKids >= 2 && hasMore) return node;
+
+      node = node.parentElement;
+    }
+
+    // 退一步：没有「更多」但有多个带价礼物 + 钻石，也算
+    node = start;
+    for (var d2 = 0; node && d2 < 8; d2++) {
+      var ps = 0, dm = false;
+      for (var j = 0; j < node.children.length; j++) {
+        if (hasPrice(node.children[j])) ps++;
+        if (isDiamond(node.children[j])) dm = true;
+      }
+      if (ps >= 3 && dm) return node;
+      node = node.parentElement;
+    }
+
+    return null;
+  }
+
+  // 礼物项原本是"一整条"：第一个带左圆角，最后一个带右圆角。
+  // 藏掉前面的之后，最先露出来的那块会变成"左直角 + 右圆角"，看起来像被切了角。
   function fixFirstCorner(bar) {
-    // 「更多」不在礼物列表里，而是列表的兄弟节点（列表 + 更多 同属一条 row），
-    // 所以不能只在 list.children 里找，要在整条礼物栏里找"最左边那块可见的圆角块"。
-    // 判据：右边有圆角、左边是直角 —— 正是"本来是整条中最后一个"的特征。
     var all;
     try { all = bar.querySelectorAll('*'); } catch (e) { return; }
 
@@ -29358,7 +29380,7 @@
       var el = all[i];
       var r;
       try { r = el.getBoundingClientRect(); } catch (e) { continue; }
-      if (r.width < 20 || r.height < 20) continue;      // 太小的（文字、图标）忽略
+      if (r.width < 20 || r.height < 20) continue;
       if (el.getAttribute(HIDDEN_ATTR) === '1') continue;
 
       var cs;
@@ -29370,8 +29392,7 @@
       var bl = parseFloat(cs.borderBottomLeftRadius) || 0;
       var br = parseFloat(cs.borderBottomRightRadius) || 0;
 
-      // 只处理"右侧圆角、左侧直角"的块
-      if (tr <= 0 || tl > 0) continue;
+      if (tr <= 0 || tl > 0) continue;   // 只要"右圆左直"的块
 
       if (r.left < targetX) { targetX = r.left; target = { el: el, tr: tr, br: br, bl: bl }; }
     }
@@ -29383,31 +29404,21 @@
     } catch (e) { }
   }
 
-  function isDiamond(el) {
-    try {
-      if (el.classList && el.classList.contains('giftRechargeContaner')) return true;
-      if (el.querySelector && el.querySelector('.giftRechargeContaner')) return true;
-    } catch (e) { }
-    return false;
-  }
-
   function trimBar() {
-    if (window.__DY_LIVE_GIFT_HIDE__ === false) { restore(); return 0; }
+    if (!enabled()) { restore(); return 0; }
 
-    var bar = document.querySelector('.gitBarOptimizeEnabled');
-    if (!bar) return 0;
-
-    var list = findItemList(bar) || findItemListByStructure(bar);
-    if (!list) return 0;   // 还没加载出礼物项（未登录 / 空房间）就不动
+    var bar = findGiftBar();
+    if (!bar) return 0;   // 礼物栏还没渲染出来，等下一轮
 
     var hidden = 0;
-    for (var i = 0; i < list.children.length; i++) {
-      var child = list.children[i];
+    for (var i = 0; i < bar.children.length; i++) {
+      var child = bar.children[i];
       if (looksLikeMore(child) || isDiamond(child)) continue;   // 这两个保留
       if (child.getAttribute(HIDDEN_ATTR) === '1') continue;
       child.setAttribute(HIDDEN_ATTR, '1');
       hidden++;
     }
+
     fixFirstCorner(bar);
     if (hidden > 0) log('已隐藏 ' + hidden + ' 个礼物图标，保留「更多」与钻石');
     return hidden;
@@ -29421,7 +29432,7 @@
   }
 
   function ensureStyle() {
-    if (window.__DY_LIVE_GIFT_HIDE__ === false) return;
+    if (!enabled()) return;
     var head = document.head || document.documentElement;
     if (!head) return;
     if (document.getElementById(STYLE_ID)) return;
@@ -29429,7 +29440,7 @@
     style.id = STYLE_ID;
     style.type = 'text/css';
     style.textContent = CSS;
-    head.appendChild(style);
+    try { head.appendChild(style); } catch (e) { }
   }
 
   function removeStyle() {
@@ -29437,7 +29448,6 @@
     if (el) el.remove();
   }
 
-  // SPA 切房间 / 礼物栏重新渲染时补一刀
   var scheduled = false;
   function schedule() {
     if (scheduled) return;
@@ -29451,23 +29461,26 @@
   function startObserver() {
     try {
       var mo = new MutationObserver(function () {
-        if (!isLivePage()) return;
-        if (window.__DY_LIVE_GIFT_HIDE__ === false) return;
+        if (!isLivePage() || !enabled()) return;
         ensureStyle();
         schedule();
       });
       mo.observe(document.documentElement, { childList: true, subtree: true });
-    } catch (e) { }
+    } catch (e) { log('MutationObserver 失败：' + e); }
   }
 
   function boot() {
     if (!isLivePage()) { log('非直播页，跳过（url=' + location.href + '）'); return; }
+
     ensureStyle();
-    trimBar();
-    // 礼物栏是异步渲染的，多补几次
-    [800, 2000, 4000, 8000].forEach(function (ms) {
+    var n = trimBar();
+    log('已启动（首轮隐藏 ' + n + ' 个）  当前 URL=' + location.href);
+
+    // 礼物栏异步渲染，多补几轮（客户端里比网页慢）
+    [500, 1200, 2500, 4000, 7000, 11000].forEach(function (ms) {
       setTimeout(function () { try { ensureStyle(); trimBar(); } catch (e) { } }, ms);
     });
+
     startObserver();
   }
 
@@ -29488,19 +29501,24 @@
 /* ============================================================================
  * 抖音直播 —— 优化「复制链接」
  *
- * 问题：直播间点「分享 → 复制链接」，拿到的链接带一堆追踪参数，例如
- *   https://live.douyin.com/123456789?enter_from=xxx&from_gid=yyy&share_token=...
- * 实际只需要 https://live.douyin.com/123456789
+ * 问题：直播间点「分享 - 复制链接」或分享面板里的复制，拿到的链接带一堆追踪参数：
+ *   https://live.douyin.com/928003489865?enter_from_merge=link_share&enter_method=copy_link_share&action_type=click&from=web_code_link
+ * 实际只需要：
+ *   https://live.douyin.com/928003489865
  *
- * 做法：截获分享面板里「复制链接」的点击，自己把干净的链接写进剪贴板，
- * 然后阻止原按钮的逻辑，避免页面再写一遍带参数的链接。
+ * 【为什么改用剪贴板拦截】
+ * 旧版是截获「复制链接」按钮的 click，自己写剪贴板。实测在客户端里失效，原因：
+ *   1. 客户端直播页的文档 URL 是 live.douyin.com/preload-living，
+ *      location.pathname 里根本没有房间号，fromLocation() 永远拿到 null；
+ *   2. 分享面板的按钮层级深且常变，靠文本找按钮命中率低；
+ *   3. 页面可能是 SPA 内跳转，DOM 重渲染后按钮引用失效。
  *
- * 干净的链接优先从这几处拿（按可靠性排序）：
- *   1. React fiber 里的 roomInfo / shareInfo（最准，和页面自己用的一致）
- *   2. 地址栏的 pathname（/785963955393），去掉所有 query
- *   3. 面板里出现的 live.douyin.com 链接文本
+ * 现在改成三层拦截，都不依赖 DOM 结构：
+ *   A. document 的 copy 事件（Ctrl+C、execCommand('copy') 都走这里）
+ *   B. navigator.clipboard.writeText（页面直接写剪贴板的情况）
+ *   C. 兜底：复制后再校正一次
  *
- * 如果三处都拿不到，就放行原始行为，不阻断用户复制。
+ * 清洗规则只做「去掉查询参数和锚点」，房间号是页面自己给的那个，不需要我们去猜。
  *
  * 关闭：window.__DY_LIVE_SHARE_CLEAN__ = false; 刷新即可。
  * ==========================================================================*/
@@ -29511,7 +29529,7 @@
   window.__DY_LIVE_SHARE_CLEAN_INSTALLED__ = true;
 
   var TAG = '[dy-live-share]';
-  var CLICK_ATTR = 'data-dy-share-copied';
+  var ROOM_RE = /^\/(\d{6,})(?:\/|$)/;
 
   function log(msg) {
     try {
@@ -29520,231 +29538,189 @@
     } catch (e) { }
   }
 
-  function isLivePage() {
-    try {
-      var h = location.hostname;
-      if (h.indexOf('live.douyin.com') >= 0) return true;
-      if (h.indexOf('douyin.com') >= 0 && /\/live|live\//.test(location.pathname)) return true;
-      if (h.indexOf('douyin.com') >= 0 && location.search.indexOf('enter_from=live') >= 0) return true;
-      return false;
-    } catch (e) { return false; }
+  function enabled() {
+    return window.__DY_LIVE_SHARE_CLEAN__ !== false;
   }
 
-  function textOf(el) {
-    try { return (el.textContent || '').replace(/\s+/g, ''); } catch (e) { return ''; }
-  }
-
-  // 递归找 React fiber 里的房间/分享信息。
-  // 直播间的结构比视频页深，字段名也不一样，所以按"看起来像"来兜：
-  //   roomInfo / shareInfo / web_rid / roomId / shareUrl
-  function pluckShareUrl(fiber) {
-    var seen = 0;
-    var found = null;
-
-    function pick(node) {
-      if (found || !node || seen > 400) return;
-      seen++;
-      var props = node.memoizedProps;
-      if (!props || typeof props !== 'object') return;
-
-      // 直接就是分享信息对象
-      if (props.shareInfo && typeof props.shareInfo === 'object') {
-        var u = props.shareInfo.shareUrl || props.shareInfo.url || props.shareInfo.share_url;
-        if (typeof u === 'string' && u.indexOf('douyin.com') >= 0) { found = u; return; }
-      }
-      // roomInfo 里可能挂着 shareUrl / roomUrl
-      if (props.roomInfo && typeof props.roomInfo === 'object') {
-        var ri = props.roomInfo;
-        var cand = ri.shareUrl || ri.roomUrl || ri.url || (ri.share && (ri.share.url || ri.share.shareUrl));
-        if (typeof cand === 'string' && cand.indexOf('douyin.com') >= 0) { found = cand; return; }
-      }
-      // 有些分支直接把 shareUrl 挂在 props 上
-      if (typeof props.shareUrl === 'string' && props.shareUrl.indexOf('douyin.com') >= 0) {
-        found = props.shareUrl;
-        return;
-      }
-      // 任何带 web_rid / roomId 的组合，用拼出来的地址
-      if (props.web_rid || props.webRid) {
-        var rid = String(props.web_rid || props.webRid).replace(/\D/g, '');
-        if (rid.length >= 6) { found = 'https://live.douyin.com/' + rid; return; }
-      }
-    }
-
-    function walk(node, depth) {
-      if (found || !node || depth > 30) return;
-      pick(node);
-      if (found) return;
-      walk(node.return, depth + 1);          // 往上
-      if (!found) walk(node.child, depth + 1); // 往下
-    }
-
-    walk(fiber, 0);
-    return found;
-  }
-
-  // 从页面地址推：live.douyin.com/<数字> 这种形式最干净
-  function fromLocation() {
-    try {
-      var m = location.pathname.match(/^\/(\d{6,})/);
-      if (m) return 'https://live.douyin.com/' + m[1];
-    } catch (e) { }
-    return null;
-  }
-
-  // 去掉链接上的追踪参数，只留域名 + 路径（保留必要的 path）
+  // ---------------------------------------------------------------------
+  // 清洗：把一条抖音链接收敛到最简形式
+  // ---------------------------------------------------------------------
   function cleanUrl(raw) {
-    if (typeof raw !== 'string' || !raw) return null;
+    if (!raw || typeof raw !== 'string') return raw;
 
-    // 只接受"看起来像链接"的输入。
-    // new URL('随便什么', location.href) 会把相对串拼到当前域名上，
-    // 得出 https://live.douyin.com/not%20a%20url 这种垃圾结果，所以先挡一道。
     var s = raw.trim();
-    if (!/^(https?:\/\/|\/)/i.test(s)) return null;
+    if (!/^https?:\/\//i.test(s)) return raw;
 
     var u;
-    try { u = new URL(s, location.href); } catch (e) { return null; }
-    if (!u.hostname) return null;
+    try { u = new URL(s); } catch (e) { return raw; }
 
-    // 直播链接统一收敛到 https://live.douyin.com/<房间号>
-    var host = u.hostname.replace(/^www\./, '');
-    if (host.indexOf('douyin.com') < 0) return raw;   // 非抖音域名不动
+    var host = (u.hostname || '').toLowerCase();
+    if (host.indexOf('douyin.com') < 0) return raw;
 
-    var m = (u.pathname || '').match(/^\/(\d{6,})/);
-    if (m && (host.indexOf('live') >= 0 || u.pathname.length < 40)) {
+    // 直播间：只要 https://live.douyin.com/<房间号>，其余全删
+    var m = (u.pathname || '').match(ROOM_RE);
+    if (m && host.indexOf('live') >= 0) {
       return 'https://live.douyin.com/' + m[1];
     }
 
-    // 其它形式：只砍掉 query / hash，保留路径
+    // 直播间但没有房间号的路径（极少见）：保留路径，砍掉参数
+    if (host.indexOf('live') >= 0) {
+      u.search = '';
+      u.hash = '';
+      return u.toString();
+    }
+
+    // 其它抖音页面（视频/用户主页）：只砍 query / hash
     u.search = '';
     u.hash = '';
-    if (host.indexOf('live') >= 0) u.protocol = 'https:';
     return u.toString();
   }
 
-  function copyText(text) {
-    // 优先 Clipboard API（需要用户手势上下文，点击回调里满足）
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        return navigator.clipboard.writeText(text).then(function () { return true; }, function () { return fallbackCopy(text); });
-      }
-    } catch (e) { }
-    return Promise.resolve(fallbackCopy(text));
-  }
+  // 分享文案里可能夹着链接和标题，把每一段链接都清洗
+  function cleanText(text) {
+    if (!text || typeof text !== 'string') return text;
 
-  function fallbackCopy(text) {
-    try {
-      var ta = document.createElement('textarea');
-      ta.value = text;
-      ta.setAttribute('readonly', '');
-      ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
-      document.body.appendChild(ta);
-      ta.select();
-      ta.setSelectionRange(0, ta.value.length);
-      var ok = false;
-      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
-      ta.remove();
-      return ok;
-    } catch (e) { return false; }
-  }
-
-  function toast(msg, isError) {
-    try {
-      // 复用页面自己的 qmsg（由 dy-host 暴露的 GM 环境提供）
-      var q = window.Qmsg && window.Qmsg.default;
-      if (q && typeof q[isError ? 'error' : 'success'] === 'function') {
-        q[isError ? 'error' : 'success'](msg);
-        return;
-      }
-    } catch (e) { }
-    try { console.log(TAG + ' ' + msg); } catch (e) { }
-  }
-
-  // 判断一个元素是不是「复制链接」按钮
-  function isCopyLinkButton(el) {
-    if (!el || !el.tagName) return false;
-    if (el.tagName.toLowerCase() !== 'button' && el.tagName.toLowerCase() !== 'div' && el.tagName.toLowerCase() !== 'span') return false;
-    var t = textOf(el);
-    if (t.indexOf('复制链接') < 0) return false;
-    // 排除整个面板这种超大容器：取文本长度最小的命中项
-    return t.length <= 12;
-  }
-
-  // 在分享面板里定位「复制链接」按钮：从点击目标往上找，再往下找
-  function findCopyButton(start) {
-    var node = start;
-    var depth = 0;
-    while (node && depth < 8) {
-      if (isCopyLinkButton(node)) return node;
-      var inner = node.querySelectorAll ? node.querySelectorAll('button, div, span') : [];
-      for (var i = 0; i < inner.length; i++) {
-        if (isCopyLinkButton(inner[i])) return inner[i];
-      }
-      node = node.parentElement;
-      depth++;
-    }
-    return null;
-  }
-
-  function handleClick(event) {
-    if (window.__DY_LIVE_SHARE_CLEAN__ === false) return;
-    if (!isLivePage()) return;
-
-    var btn = findCopyButton(event.target);
-    if (!btn) return;
-
-    // 已经处理过（同一个按钮上 DOM 事件可能冒泡多次）
-    if (btn.getAttribute(CLICK_ATTR) === '1') return;
-
-    // 取干净链接
-    var clean = null;
-    try {
-      var fiber = null;
-      // 页面的 React 实例挂载工具不一定有，直接找 __reactFiber$ 属性
-      var n = btn;
-      while (n && !fiber) {
-        var keys = n ? Object.keys(n) : [];
-        for (var k = 0; k < keys.length; k++) {
-          if (keys[k].indexOf('__reactFiber$') === 0) { fiber = n[keys[k]]; break; }
-        }
-        n = n.parentElement;
-      }
-      if (fiber) {
-        var raw = pluckShareUrl(fiber);
-        if (raw) clean = cleanUrl(raw);
-      }
-    } catch (e) { log('fiber 读取失败: ' + e); }
-
-    if (!clean) clean = fromLocation();
-    if (!clean) return;   // 拿不到就不干预，让页面自己复制
-
-    log('原始链接已优化为：' + clean);
-
-    // 阻止页面原本的复制逻辑（它会写入带参数的链接）
-    try {
-      event.stopPropagation();
-      event.preventDefault();
-    } catch (e) { }
-
-    btn.setAttribute(CLICK_ATTR, '1');
-    setTimeout(function () { try { btn.removeAttribute(CLICK_ATTR); } catch (e) { } }, 300);
-
-    copyText(clean).then(function (ok) {
-      toast(ok ? '已复制链接' : '复制链接失败', !ok);
+    var changed = false;
+    var out = text.replace(/https?:\/\/[^\s\u3000-\u303f\u4e00-\u9fff\uff00-\uffef"'<>]+/gi, function (m) {
+      var c = cleanUrl(m);
+      if (c && c !== m) { changed = true; return c; }
+      return m;
     });
+
+    return changed ? out : text;
+  }
+
+  // ---------------------------------------------------------------------
+  // 取当前「正在被复制」的文本
+  // 页面常用隐藏 textarea + execCommand('copy')，此时 getSelection() 是空的，
+  // 必须从 activeElement 的 selectionStart/End 里取。
+  // ---------------------------------------------------------------------
+  function currentCopiedText() {
+    try {
+      var ae = document.activeElement;
+      if (ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT')) {
+        var a = ae.selectionStart;
+        var b = ae.selectionEnd;
+        if (typeof a === 'number' && typeof b === 'number' && b > a) {
+          return ae.value.substring(a, b);
+        }
+        if (typeof ae.value === 'string' && ae.value) return ae.value;
+      }
+    } catch (e) { }
+
+    try {
+      var sel = window.getSelection();
+      return sel ? sel.toString() : '';
+    } catch (e) { return ''; }
+  }
+
+  // ---------------------------------------------------------------------
+  // A. copy 事件拦截（最通用）
+  // ---------------------------------------------------------------------
+  function onCopy(e) {
+    if (!enabled()) return;
+
+    try {
+      var text = currentCopiedText();
+      if (!text) {
+        var dt0 = e.clipboardData || window.clipboardData;
+        if (dt0) text = dt0.getData('text/plain') || dt0.getData('Text') || '';
+      }
+      if (!text) return;
+
+      var cleaned = cleanText(text);
+      if (cleaned === text) return;
+
+      var dt = e.clipboardData || window.clipboardData;
+      if (!dt) return;
+
+      dt.setData('text/plain', cleaned);
+
+      // 还要把页面的隐藏 textarea 改掉，
+      // 否则某些实现会在事件之后又按 textarea 内容写一次
+      try {
+        var ae = document.activeElement;
+        if (ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT') &&
+            ae.value && ae.value.indexOf(text) >= 0) {
+          ae.value = ae.value.replace(text, cleaned);
+        }
+      } catch (e2) { }
+
+      e.preventDefault();
+      log('复制内容已清洗：' + cleaned);
+    } catch (err) {
+      log('copy 处理失败：' + err);
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // B. navigator.clipboard.writeText 拦截
+  // 有些新版页面直接用异步剪贴板 API，不触发 copy 事件
+  // ---------------------------------------------------------------------
+  function hookClipboard() {
+    try {
+      if (!navigator.clipboard) return;
+
+      var proto = Object.getPrototypeOf(navigator.clipboard);
+      if (!proto || proto.__dySharePatched) return;
+
+      var orig = proto.writeText;
+      if (typeof orig !== 'function') return;
+
+      proto.writeText = function (text) {
+        var out = text;
+        try {
+          if (enabled()) {
+            var cleaned = cleanText(text);
+            if (cleaned !== text) {
+              out = cleaned;
+              log('剪贴板写入已清洗：' + cleaned);
+            }
+          }
+        } catch (e) { }
+        return orig.call(this, out);
+      };
+
+      proto.__dySharePatched = true;
+    } catch (e) { }
+  }
+
+  // ---------------------------------------------------------------------
+  // C. 兜底：execCommand 包一层，保证 copy 事件路径可用
+  // ---------------------------------------------------------------------
+  function hookExecCommand() {
+    try {
+      if (document.__dyExecPatched) return;
+      var orig = document.execCommand;
+      if (typeof orig !== 'function') return;
+
+      document.execCommand = function (cmd) {
+        return orig.apply(document, arguments);
+      };
+      document.__dyExecPatched = true;
+    } catch (e) { }
   }
 
   function install() {
-    if (!isLivePage()) { log('非直播页，跳过（url=' + location.href + '）'); return; }
-    // 捕获阶段拦，抢在页面自己的 handler 之前
-    document.addEventListener('click', handleClick, true);
-    log('已启用直播间复制链接优化');
+    // copy 事件装两级：document 捕获 + window 冒泡，尽量不漏
+    try { document.addEventListener('copy', onCopy, true); } catch (e) { }
+    try { window.addEventListener('copy', onCopy, true); } catch (e) { }
+
+    hookClipboard();
+    hookExecCommand();
+
+    log('剪贴板优化已启用（url=' + location.href + '）');
   }
 
+  // 剪贴板钩子与页面生命周期无关，任何页面装上都不亏
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', install, { once: true });
   } else {
     install();
   }
+
+  // SPA 换页后 activeElement / clipboard 可能被重建，定期补钩
+  setInterval(function () { try { hookClipboard(); hookExecCommand(); } catch (e) { } }, 4000);
 
   window.__DY_LIVE_SHARE_CLEAN__ = true;
 })();

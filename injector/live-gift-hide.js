@@ -1,21 +1,23 @@
 /* ============================================================================
  * 抖音直播 —— 礼物栏精简（只保留「更多」二级菜单 + 钻石）
  *
- * 效果：底部礼物栏里的每个礼物图标（三生有幸 / 金秋传爱意 / 秋至情圆 / 鲜花 …）
- *       全部隐去，只留下：
+ * 效果：底部礼物栏里的每个礼物图标全部隐去，只留下：
  *         - 「更多 >」按钮  —— 点开就是完整礼物面板（二级菜单）
  *         - 钻石数量        —— 充值/余额显示
  *
- * 为什么不写死 class 名：
- *   抖音的 class 是构建时哈希的（xAG9cqUC / saw7uCUW …），每次发版都会变。
- *   这里改用「文本特征」判定：
- *     带价格的礼物项 -> 文本里有「钻」（如 9999钻、1500钻）
- *     「更多」按钮   -> 文本是「更多」
- *     钻石           -> .giftRechargeContaner 及其容器
- *   所以版本更新后依然有效。
+ * 【为什么不再依赖 .gitBarOptimizeEnabled】
+ * 旧版靠这个 class 定位礼物栏。客户端新版本里它已经不存在（日志里从未打印
+ * 「已隐藏 N 个」），所以整块逻辑静默失效。
+ *
+ * 现在改成完全的「文本特征 + 结构」判定，与 class 名解耦：
+ *   1. 先找页面里所有含「钻」的叶子块（礼物项的定价文本，如 9999钻、1钻）
+ *   2. 它们的共同祖先，且子节点里有「更多」的，就是礼物栏
+ *   3. 栏内除「更多」和钻石之外的同级项，全部打标记隐藏
+ *
+ * 因为抖音的 class 是构建时哈希的（xAG9cqUC / saw7uCUW …）每次发版都会变，
+ * 只有文本是稳定的。
  *
  * 另外仍然隐藏：送礼全屏特效、飘屏。
- * 保留：礼物面板 #GiftMenuLayout（否则点「更多」没反应）、底部控制条、弹幕、聊天区。
  *
  * 临时恢复：window.__DY_LIVE_GIFT_HIDE__ = false; 刷新即可。
  * ==========================================================================*/
@@ -36,11 +38,12 @@
     } catch (e) { }
   }
 
-  // CSS 只负责"整层"的东西；单个礼物项由 JS 按文本判定后打标记
+  function enabled() {
+    return window.__DY_LIVE_GIFT_HIDE__ !== false;
+  }
+
   var CSS = [
     '[' + HIDDEN_ATTR + '="1"] { display: none !important; }',
-
-    /* 送礼全屏特效 / 飘屏。注意保留 #GiftMenuLayout，否则「更多」点不开 */
     '#GiftEffectLayout, #GiftTrayLayout { display: none !important; }',
     'div[id^="gift_effect_bg_"] { display: none !important; }',
     '.GiftEffectPlugin, .GiftTrayPlugin { display: none !important; }'
@@ -56,65 +59,84 @@
     } catch (e) { return false; }
   }
 
-  // 用 textContent 而不是 innerText：
-  //   - innerText 依赖布局，未渲染 / 隐藏的节点会返回空串，判不出来
-  //   - innerText 会强制重排，在 MutationObserver 里反复调用很伤性能
+  // textContent 而不是 innerText：后者依赖布局，未渲染就返回空
   function textOf(el) {
     try { return (el.textContent || '').replace(/\s+/g, ''); } catch (e) { return ''; }
   }
 
-  // 在礼物栏里找"礼物项列表"：子女里带「钻」最多的那个容器。
-  // 礼物项可能直接挂在 .gitBarOptimizeEnabled 下，也可能在更深一层的列表里，
-  // 所以候选集合要把 bar 自己也算进去。
-  function findItemList(bar) {
-    var best = null, bestScore = 0;
-    var nodes;
-    try { nodes = bar.querySelectorAll('*'); } catch (e) { return null; }
-
-    function consider(n) {
-      if (!n || n.children.length < 2) return;
-      var score = 0;
-      for (var j = 0; j < n.children.length; j++) {
-        if (textOf(n.children[j]).indexOf('钻') >= 0) score++;
-      }
-      if (score > bestScore) { bestScore = score; best = n; }
-    }
-
-    consider(bar);                                  // 先看 bar 自己
-    for (var i = 0; i < nodes.length; i++) consider(nodes[i]);
-
-    return bestScore >= 2 ? best : null;   // 至少两个带价格的礼物，才当成列表
+  // 礼物项的定价文本：整段里只有「数字+钻」或含「钻」
+  function hasPrice(el) {
+    var t = textOf(el);
+    if (t.indexOf('钻') < 0) return false;
+    if (t.length > 14) return false;          // 太长的多半是整块容器
+    return true;
   }
 
-  // 兜底：拿不到价格文本时（含「钻」字样可能变化），
-  // 就按"除「更多」和钻石之外全部隐藏"处理 —— 但不能少于 3 个子项，避免误伤
-  function findItemListByStructure(bar) {
-    var nodes = [];
-    try { nodes = bar.querySelectorAll('*'); } catch (e) { return null; }
-    var best = null, bestCount = 0;
-    function consider(n) {
-      if (!n || n.children.length < 3) return;
-      var hasMore = false, hasDiamond = false;
-      for (var j = 0; j < n.children.length; j++) {
-        if (looksLikeMore(n.children[j])) hasMore = true;
-        if (isDiamond(n.children[j])) hasDiamond = true;
-      }
-      if (hasMore && n.children.length > bestCount) { bestCount = n.children.length; best = n; }
-    }
-    consider(bar);
-    for (var i = 0; i < nodes.length; i++) consider(nodes[i]);
-    return best;
+  function looksLikeMore(el) {
+    var t = textOf(el);
+    if (t.length > 6) return false;
+    return t.indexOf('更多') >= 0;
   }
 
-  function looksLikeMore(el) { return textOf(el).indexOf('更多') >= 0; }
+  function isDiamond(el) {
+    try {
+      if (el.classList && el.classList.contains('giftRechargeContaner')) return true;
+      if (el.querySelector && el.querySelector('.giftRechargeContaner')) return true;
+    } catch (e) { }
+    return false;
+  }
 
-  // 礼物项原本是"一整条"：第一个带左圆角，最后一个带右圆角，中间都是直角。
-  // 把前面的礼物藏掉之后，最先露出来的那块就会显示成"左直角 + 右圆角"，
-  // 看起来像被切掉一角。这里把它左侧补成和右侧一样的圆角。
+  // ---------------------------------------------------------------------
+  // 找礼物栏：含「钻」的叶子块的共同祖先里，子节点带「更多」的那个
+  // ---------------------------------------------------------------------
+  function findGiftBar() {
+    var all;
+    try { all = document.querySelectorAll('div, li, span'); } catch (e) { return null; }
+
+    // 收集所有「带价格的礼物项」
+    var items = [];
+    for (var i = 0; i < all.length && items.length < 60; i++) {
+      if (hasPrice(all[i])) items.push(all[i]);
+    }
+    if (items.length < 2) return null;
+
+    // 从某个礼物项往上走，第一个「子节点里既有礼物项又有「更多」」的容器就是礼物栏
+    var start = items[0];
+    var node = start;
+    for (var depth = 0; node && depth < 8; depth++) {
+      var kids = node.children;
+      var priceKids = 0, hasMore = false, hasDiamond = false;
+
+      for (var k = 0; k < kids.length; k++) {
+        if (hasPrice(kids[k])) priceKids++;
+        if (looksLikeMore(kids[k])) hasMore = true;
+        if (isDiamond(kids[k])) hasDiamond = true;
+      }
+
+      // 礼物栏的特征：至少 2 个带价礼物 + 有「更多」入口
+      if (priceKids >= 2 && hasMore) return node;
+
+      node = node.parentElement;
+    }
+
+    // 退一步：没有「更多」但有多个带价礼物 + 钻石，也算
+    node = start;
+    for (var d2 = 0; node && d2 < 8; d2++) {
+      var ps = 0, dm = false;
+      for (var j = 0; j < node.children.length; j++) {
+        if (hasPrice(node.children[j])) ps++;
+        if (isDiamond(node.children[j])) dm = true;
+      }
+      if (ps >= 3 && dm) return node;
+      node = node.parentElement;
+    }
+
+    return null;
+  }
+
+  // 礼物项原本是"一整条"：第一个带左圆角，最后一个带右圆角。
+  // 藏掉前面的之后，最先露出来的那块会变成"左直角 + 右圆角"，看起来像被切了角。
   function fixFirstCorner(bar) {
-    // 「更多」不在礼物列表里，而是列表的兄弟节点（列表 + 更多 同属一条 row），
-    // 所以不能只在 list.children 里找，要在整条礼物栏里找"最左边那块可见的圆角块"。
-    // 判据：右边有圆角、左边是直角 —— 正是"本来是整条中最后一个"的特征。
     var all;
     try { all = bar.querySelectorAll('*'); } catch (e) { return; }
 
@@ -123,7 +145,7 @@
       var el = all[i];
       var r;
       try { r = el.getBoundingClientRect(); } catch (e) { continue; }
-      if (r.width < 20 || r.height < 20) continue;      // 太小的（文字、图标）忽略
+      if (r.width < 20 || r.height < 20) continue;
       if (el.getAttribute(HIDDEN_ATTR) === '1') continue;
 
       var cs;
@@ -135,8 +157,7 @@
       var bl = parseFloat(cs.borderBottomLeftRadius) || 0;
       var br = parseFloat(cs.borderBottomRightRadius) || 0;
 
-      // 只处理"右侧圆角、左侧直角"的块
-      if (tr <= 0 || tl > 0) continue;
+      if (tr <= 0 || tl > 0) continue;   // 只要"右圆左直"的块
 
       if (r.left < targetX) { targetX = r.left; target = { el: el, tr: tr, br: br, bl: bl }; }
     }
@@ -148,31 +169,21 @@
     } catch (e) { }
   }
 
-  function isDiamond(el) {
-    try {
-      if (el.classList && el.classList.contains('giftRechargeContaner')) return true;
-      if (el.querySelector && el.querySelector('.giftRechargeContaner')) return true;
-    } catch (e) { }
-    return false;
-  }
-
   function trimBar() {
-    if (window.__DY_LIVE_GIFT_HIDE__ === false) { restore(); return 0; }
+    if (!enabled()) { restore(); return 0; }
 
-    var bar = document.querySelector('.gitBarOptimizeEnabled');
-    if (!bar) return 0;
-
-    var list = findItemList(bar) || findItemListByStructure(bar);
-    if (!list) return 0;   // 还没加载出礼物项（未登录 / 空房间）就不动
+    var bar = findGiftBar();
+    if (!bar) return 0;   // 礼物栏还没渲染出来，等下一轮
 
     var hidden = 0;
-    for (var i = 0; i < list.children.length; i++) {
-      var child = list.children[i];
+    for (var i = 0; i < bar.children.length; i++) {
+      var child = bar.children[i];
       if (looksLikeMore(child) || isDiamond(child)) continue;   // 这两个保留
       if (child.getAttribute(HIDDEN_ATTR) === '1') continue;
       child.setAttribute(HIDDEN_ATTR, '1');
       hidden++;
     }
+
     fixFirstCorner(bar);
     if (hidden > 0) log('已隐藏 ' + hidden + ' 个礼物图标，保留「更多」与钻石');
     return hidden;
@@ -186,7 +197,7 @@
   }
 
   function ensureStyle() {
-    if (window.__DY_LIVE_GIFT_HIDE__ === false) return;
+    if (!enabled()) return;
     var head = document.head || document.documentElement;
     if (!head) return;
     if (document.getElementById(STYLE_ID)) return;
@@ -194,7 +205,7 @@
     style.id = STYLE_ID;
     style.type = 'text/css';
     style.textContent = CSS;
-    head.appendChild(style);
+    try { head.appendChild(style); } catch (e) { }
   }
 
   function removeStyle() {
@@ -202,7 +213,6 @@
     if (el) el.remove();
   }
 
-  // SPA 切房间 / 礼物栏重新渲染时补一刀
   var scheduled = false;
   function schedule() {
     if (scheduled) return;
@@ -216,23 +226,26 @@
   function startObserver() {
     try {
       var mo = new MutationObserver(function () {
-        if (!isLivePage()) return;
-        if (window.__DY_LIVE_GIFT_HIDE__ === false) return;
+        if (!isLivePage() || !enabled()) return;
         ensureStyle();
         schedule();
       });
       mo.observe(document.documentElement, { childList: true, subtree: true });
-    } catch (e) { }
+    } catch (e) { log('MutationObserver 失败：' + e); }
   }
 
   function boot() {
     if (!isLivePage()) { log('非直播页，跳过（url=' + location.href + '）'); return; }
+
     ensureStyle();
-    trimBar();
-    // 礼物栏是异步渲染的，多补几次
-    [800, 2000, 4000, 8000].forEach(function (ms) {
+    var n = trimBar();
+    log('已启动（首轮隐藏 ' + n + ' 个）  当前 URL=' + location.href);
+
+    // 礼物栏异步渲染，多补几轮（客户端里比网页慢）
+    [500, 1200, 2500, 4000, 7000, 11000].forEach(function (ms) {
       setTimeout(function () { try { ensureStyle(); trimBar(); } catch (e) { } }, ms);
     });
+
     startObserver();
   }
 
