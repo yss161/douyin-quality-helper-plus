@@ -9,6 +9,64 @@
 
 ---
 
+## [2.0.2] - 2026-10-28
+
+**复制链接：改为「保留有效信息、去掉无用参数」的通用规则**
+
+v2.0.1 的实现太粗暴——非直播页会砍掉**全部**查询参数，会误伤一种真实情况：
+
+```
+https://www.douyin.com/discover?modal_id=73xxxx
+                    ↑ 路径只有 /discover，视频 id 全在 modal_id 上
+```
+
+砍掉 `modal_id` 后链接就指不到具体作品了。所以要区分「有效信息」和「无用参数」。
+
+### 三类参数
+
+| 类别 | 处理 | 例子 |
+|---|---|---|
+| 有效信息 | **保留** | `modal_id` `vid` `aweme_id` `item_ids` `room_id` `sec_uid` `type` |
+| 追踪统计 | **删除** | `enter_from` `enter_method` `action_type` `from` `share_token` `author_id` `iid` `timestamp` 等 |
+| 未知参数 | 路径已唯一确定内容时删，否则**保守保留** | — |
+
+「保守保留」是为了不误伤以后新出现的功能参数。
+
+### 直播间：一律收敛到最简形式
+
+任意直播间、任意参数组合，都只留 `https://live.douyin.com/<房间号>`：
+
+```
+https://live.douyin.com/928003489865?enter_from_merge=link_share&enter_method=copy_link_share&action_type=click&from=web_code_link
+  ->  https://live.douyin.com/928003489865
+```
+
+房间号按可靠性从三处取：
+1. 路径 `/<数字>`
+2. 查询参数 `room_id` / `web_rid` / `roomid`
+3. 当前页面地址（SPA 内跳转时 `location` 里可能才有）
+
+三处都拿不到就原样返回，不乱猜。房间号长度支持 6~20 位。
+
+### 其它处理
+
+- 短链 `v.douyin.com` / `v.iesdouyin.com` 本身就是最简形式，**原样返回**（改了就失效）
+- 非抖音域名不动
+- 分享文案里夹着标题时，只替换其中的链接，标题保留
+
+### 验证
+
+| 测试 | 结果 |
+|---|---|
+| 直播间 9 种变体（6~20 位号、带子页、只有 room_id 参数、已干净、尾部斜杠、一堆参数） | 全通过 |
+| 其它页面 4 种（discover 保 modal_id、video、user、未知页面） | 全通过 |
+| 不该动的 4 种（短链、非抖音、非链接、空值） | 全通过 |
+| 端到端复制模拟（含带标题的分享文案） | 全通过 |
+
+共 **23 项**全通过。
+
+---
+
 ## [2.0.1] - 2026-10-28
 
 **修复：直播间「复制链接」与「礼物栏精简」两个功能失效**

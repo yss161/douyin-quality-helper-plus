@@ -1,6 +1,6 @@
 /* ============================================================================
  * 抖音画质助手 · GM 兼容层
- * 版本 2.0.1 ｜ https://github.com/yss161/douyin-quality-helper-plus
+ * 版本 2.0.2 ｜ https://github.com/yss161/douyin-quality-helper-plus
  *
  * 让油猴脚本能在客户端里跑（进阶）
  *
