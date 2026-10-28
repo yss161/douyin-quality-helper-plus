@@ -8,7 +8,7 @@
   ],
   "tool": {
     "name": "douyin-quality-helper",
-    "version": "2.0.4",
+    "version": "2.0.5",
     "releasedAt": "2026-10-25",
     "description": "让抖音 PC 版每个视频都按可用的最高清晰度（4K/2K/1080P）播放，内置结束抖音进程与「抖音优化」脚本"
   },

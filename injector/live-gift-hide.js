@@ -1,31 +1,27 @@
 /* ============================================================================
  * 抖音直播 —— 礼物栏精简（只保留「更多」二级菜单 + 钻石）
  *
- * 效果：底部礼物栏里的每个礼物图标全部隐去，只留下：
- *         - 「更多 >」按钮  —— 点开就是完整礼物面板（二级菜单）
- *         - 钻石数量        —— 充值/余额显示
- *         - 其它非礼物入口（如「游戏 >」）—— 不是礼物，不动
+ * 效果：底部礼物栏里的每个礼物图标全部隐去，只留下「更多」和钻石。
  *
- * 【结构（关键）】
- *   row
- *    ├─ list        <- 礼物列表容器：直接子项全是礼物
- *    ├─ more        <- 「更多 >」，是 list 的**兄弟节点**
- *    ├─ diamond     <- 钻石，也是兄弟
- *    └─ game        <- 「游戏 >」，也是兄弟
+ * 【三层定位策略，逐级降级】
  *
- *   所以只隐藏 list 自己的子项，兄弟节点一律不碰。
+ *   A. 文本层：找带价格文本的礼物项（"99钻" / "1 钻" 这类），
+ *      再按父级聚合计票，子项最多的父级就是礼物列表。
  *
- * 【为什么要遍历 Shadow DOM】
- *   抖音直播页大量使用 Web Components（pace-island 等自定义元素），
- *   礼物栏很可能在 shadow root 里。document.querySelectorAll 穿不透 shadow 边界，
- *   之前「首轮隐藏 0 个」就是这个原因。这里递归收集所有 shadow root 再扫。
+ *   B. 几何层（主用）：礼物栏固定在视口底部，且是一排等宽小方块。
+ *      沿底部横向采样 elementsFromPoint，找到"子项数量 >= 6 且尺寸相近"的容器，
+ *      直接拿它当礼物栏。这一层不依赖任何文本或 class，最稳。
+ *
+ *   C. iframe 层：客户端可能把直播内容放在 iframe 里，
+ *      对每个同源 iframe 递归重复 A/B。
+ *
+ *   隐藏时只动礼物列表自己的子项，兄弟节点（更多 / 钻石 / 游戏）不碰。
  *
  * 【为什么不用 class 名】
  *   抖音的 class 是构建时哈希的（xAG9cqUC / saw7uCUW …），每次发版都会变。
- *   这里用「文本特征」判定：礼物项的文本里带价格（如 99钻、1钻、299钻）。
  *
  * 临时恢复：window.__DY_LIVE_GIFT_HIDE__ = false; 刷新即可。
- * 诊断：控制台执行 window.__DY_LIVE_GIFT_DUMP__() 打印扫描结果。
+ * 诊断：控制台执行 window.__DY_LIVE_GIFT_DUMP__()
  * ==========================================================================*/
 (function () {
   'use strict';
@@ -36,7 +32,7 @@
   var TAG = '[dy-live-gift]';
   var STYLE_ID = 'dy-live-gift-hide-style';
   var HIDDEN_ATTR = 'data-dy-gift-hidden';
-  var MAX_TEXT = 30;      // 礼物项文本上限（"送你糖果299钻" 之类）
+  var MAX_TEXT = 30;
 
   function log(msg) {
     try {
@@ -66,83 +62,105 @@
     } catch (e) { return false; }
   }
 
-  // textContent 而不是 innerText：后者依赖布局，未渲染就返回空
   function textOf(el) {
     try { return (el.textContent || '').replace(/\s+/g, ''); } catch (e) { return ''; }
   }
 
-  // ---------------------------------------------------------------------
-  // 收集所有根：document + 层层 shadow root
-  // ---------------------------------------------------------------------
-  function collectRoots() {
-    var roots = [];
-    var budget = 6000;
+  // 价格：数字后面跟「钻」。注意不能只判"含钻"——
+  // 顶栏有「充钻石」三个字，会把整个页面外壳误判成礼物。
+  var PRICE_RE = /\d+\s*钻/;
 
-    function walk(root, depth) {
-      if (!root || depth > 6 || budget <= 0) return;
-      roots.push(root);
-
-      var all;
-      try { all = root.querySelectorAll('*'); } catch (e) { return; }
-      if (!all) return;
-
-      for (var i = 0; i < all.length; i++) {
-        if (--budget <= 0) return;
-        var sr = null;
-        try { sr = all[i].shadowRoot; } catch (e) { }
-        if (sr) walk(sr, depth + 1);
-      }
-    }
-
-    walk(document, 0);
-    return roots;
-  }
-
-  // 礼物项：文本短、含「钻」，且以「数字+钻」结尾（价格通常在末尾）
-  function isGiftItem(el) {
+  function hasPrice(el) {
     var t = textOf(el);
     if (!t || t.length > MAX_TEXT) return false;
-    if (t.indexOf('钻') < 0) return false;
+    if (!PRICE_RE.test(t)) return false;
+    var m = t.match(/\d+\s*钻/g);
+    if (m && m.length > 1) return false;   // 多个价格 = 大容器，不是单个礼物
     return true;
   }
 
   // ---------------------------------------------------------------------
-  // 找礼物列表容器：按「父级」聚合，子项里礼物最多的那个父级
+  // 收集所有根：document + 同源 iframe + shadow root
   // ---------------------------------------------------------------------
-  function findItemList(roots) {
-    var counts = [];        // [{ parent, count }]
-    var indexByParent = []; // 平行数组：parent -> counts 下标
-    var total = 0;
-    var samples = [];
+  function collectRoots() {
+    var roots = [];
+    var budget = 8000;
 
-    function idxOf(parent) {
-      for (var i = 0; i < indexByParent.length; i++) {
-        if (indexByParent[i] === parent) return i;
+    function seen(root) {
+      for (var i = 0; i < roots.length; i++) if (roots[i] === root) return true;
+      return false;
+    }
+
+    function walk(root, win, depth) {
+      if (!root || depth > 5 || budget <= 0 || seen(root)) return;
+      roots.push(root);
+
+      // 先收 shadow root
+      var all;
+      try { all = root.querySelectorAll('*'); } catch (e) { all = null; }
+      if (all) {
+        for (var i = 0; i < all.length; i++) {
+          if (--budget <= 0) return;
+          var sr = null;
+          try { sr = all[i].shadowRoot; } catch (e) { }
+          if (sr) walk(sr, null, depth + 1);
+        }
       }
-      indexByParent.push(parent);
-      counts.push({ parent: parent, count: 0 });
+
+      // 再收 iframe（同源才可访问）
+      var frames;
+      try { frames = root.querySelectorAll('iframe, frame'); } catch (e) { frames = null; }
+      if (!frames) return;
+
+      for (var j = 0; j < frames.length; j++) {
+        var idoc = null, iwin = null;
+        try {
+          idoc = frames[j].contentDocument;
+          iwin = frames[j].contentWindow;
+        } catch (e) { continue; }
+        if (idoc) walk(idoc, iwin, depth + 1);
+      }
+    }
+
+    walk(document, window, 0);
+    return roots;
+  }
+
+  // root 对应的 window（拿 innerWidth/innerHeight 用）
+  function winOf(root) {
+    try {
+      if (root === document) return window;
+      if (root.defaultView) return root.defaultView;
+      var ow = root.ownerDocument;
+      if (ow && ow.defaultView) return ow.defaultView;
+    } catch (e) { }
+    return window;
+  }
+
+  // ---------------------------------------------------------------------
+  // A. 文本层
+  // ---------------------------------------------------------------------
+  function findByText(root) {
+    var all;
+    try { all = root.querySelectorAll('*'); } catch (e) { return null; }
+    if (!all) return null;
+
+    var counts = [];
+    var parents = [];
+
+    function idxOf(p) {
+      for (var i = 0; i < parents.length; i++) if (parents[i] === p) return i;
+      parents.push(p);
+      counts.push({ parent: p, count: 0 });
       return counts.length - 1;
     }
 
-    for (var r = 0; r < roots.length; r++) {
-      var all;
-      try { all = roots[r].querySelectorAll('*'); } catch (e) { continue; }
-      if (!all) continue;
-
-      for (var i = 0; i < all.length; i++) {
-        var el = all[i];
-        if (!isGiftItem(el)) continue;
-        total++;
-
-        if (samples.length < 5) {
-          try { samples.push(textOf(el).slice(0, 20)); } catch (e) { }
-        }
-
-        var p = el.parentElement;
-        if (!p) continue;
-
-        counts[idxOf(p)].count++;
-      }
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (!hasPrice(el)) continue;
+      var p = el.parentElement;
+      if (!p) continue;
+      counts[idxOf(p)].count++;
     }
 
     var best = null, bestCount = 0;
@@ -150,10 +168,116 @@
       if (counts[b].count > bestCount) { bestCount = counts[b].count; best = counts[b].parent; }
     }
 
-    return { list: bestCount >= 2 ? best : null, total: total, bestCount: bestCount, samples: samples, roots: roots.length };
+    return bestCount >= 2 ? best : null;
   }
 
-  // 礼物项原本是"一整条"：藏掉前面的之后，最左那块会变成"左直角+右圆角"
+  // ---------------------------------------------------------------------
+  // B. 几何层：沿视口底部采样，找"一排等宽小方块"的容器
+  // ---------------------------------------------------------------------
+  function isSimilarRow(container) {
+    var kids = container.children;
+    if (!kids || kids.length < 6) return false;
+
+    var rects = [];
+    for (var i = 0; i < kids.length; i++) {
+      var r;
+      try { r = kids[i].getBoundingClientRect(); } catch (e) { continue; }
+      if (r.width < 20 || r.height < 20) continue;
+      rects.push(r);
+    }
+    if (rects.length < 6) return false;
+
+    // 同一行：top 相近
+    var top = rects[0].top;
+    for (var j = 1; j < rects.length; j++) {
+      if (Math.abs(rects[j].top - top) > 12) return false;
+    }
+
+    // 宽度相近（礼物方块等宽）
+    var minW = Infinity, maxW = 0;
+    for (var k = 0; k < rects.length; k++) {
+      if (rects[k].width < minW) minW = rects[k].width;
+      if (rects[k].width > maxW) maxW = rects[k].width;
+    }
+    if (maxW / minW > 1.8) return false;
+
+    return true;
+  }
+
+  function findByGeometry(root) {
+    var win = winOf(root);
+    var w = 0, h = 0;
+    try { w = win.innerWidth || 0; h = win.innerHeight || 0; } catch (e) { return null; }
+    if (!w || !h) return null;
+
+    // 礼物栏贴在底部：从 h-25 到 h-90 之间采样
+    var hits = [];
+    var seenNodes = [];
+
+    for (var y = h - 25; y > h - 100; y -= 12) {
+      for (var x = 40; x < w - 280; x += 30) {
+        var els;
+        try { els = root.elementsFromPoint ? root.elementsFromPoint(x, y) : null; } catch (e) { els = null; }
+        if (!els) continue;
+        for (var i = 0; i < els.length && i < 8; i++) {
+          var el = els[i];
+          var dup = false;
+          for (var s = 0; s < seenNodes.length; s++) if (seenNodes[s] === el) { dup = true; break; }
+          if (!dup) { seenNodes.push(el); hits.push(el); }
+        }
+      }
+    }
+
+    // 在这些命中元素里，找子项数量最多的"一排等宽方块"
+    var best = null, bestCount = 0;
+    for (var k = 0; k < hits.length; k++) {
+      var cand = hits[k];
+      if (!isSimilarRow(cand)) continue;
+      var n = cand.children.length;
+      if (n > bestCount) { bestCount = n; best = cand; }
+    }
+
+    return best;
+  }
+
+  // ---------------------------------------------------------------------
+  // 隐藏：只动 list 自己的子项，兄弟节点不碰
+  // ---------------------------------------------------------------------
+  function hideIn(list, trusted) {
+    if (!list) return 0;
+
+    var hidden = 0;
+    var kids = list.children;
+
+    for (var i = 0; i < kids.length; i++) {
+      var child = kids[i];
+      if (child.getAttribute(HIDDEN_ATTR) === '1') continue;
+
+      var t = textOf(child);
+
+      // 这几个入口一定要保留
+      if (t.length <= 6 && t.indexOf('更多') >= 0) continue;
+      if (t.length <= 6 && (t.indexOf('游戏') >= 0 || t.indexOf('商城') >= 0)) continue;
+      try {
+        if (child.classList && child.classList.contains('giftRechargeContaner')) continue;
+        if (child.querySelector && child.querySelector('.giftRechargeContaner')) continue;
+      } catch (e) { }
+
+      if (trusted) {
+        // 几何层确认过：这是一排等宽礼物方块，剩下的都该藏
+        try { child.setAttribute(HIDDEN_ATTR, '1'); hidden++; } catch (e) { }
+        continue;
+      }
+
+      // 文本层：必须能看出是礼物（带价格）
+      if (!PRICE_RE.test(t)) continue;
+      try { child.setAttribute(HIDDEN_ATTR, '1'); hidden++; } catch (e) { }
+    }
+
+    return hidden;
+  }
+
+  // 礼物原本是一整条：藏掉前面后最左边那块会变成"左直角+右圆角"，补圆角
   function fixFirstCorner(host) {
     var all;
     try { all = host.querySelectorAll('*'); } catch (e) { return; }
@@ -176,7 +300,6 @@
       var br = parseFloat(cs.borderBottomRightRadius) || 0;
 
       if (tr <= 0 || tl > 0) continue;
-
       if (rect.left < targetX) { targetX = rect.left; target = { el: el, tr: tr, br: br, bl: bl }; }
     }
 
@@ -187,53 +310,81 @@
     } catch (e) { }
   }
 
-  // 上一次的统计，供诊断函数使用
-  var lastStats = null;
+  var lastStats = { roots: 0, byText: 0, byGeom: 0, hidden: 0 };
 
   function trimBar() {
     if (!enabled()) { restore(); return 0; }
 
     var roots = collectRoots();
-    var res = findItemList(roots);
-    lastStats = res;
+    var totalHidden = 0;
+    var st = { roots: roots.length, byText: 0, byGeom: 0, hidden: 0 };
+    var done = [];   // 已处理的 list，避免重复
 
-    if (!res.list) return 0;
-
-    var list = res.list;
-    var hidden = 0;
-
-    for (var i = 0; i < list.children.length; i++) {
-      var child = list.children[i];
-      if (!isGiftItem(child)) continue;
-      if (child.getAttribute(HIDDEN_ATTR) === '1') continue;
-      child.setAttribute(HIDDEN_ATTR, '1');
-      hidden++;
+    function markDone(list) {
+      for (var i = 0; i < done.length; i++) if (done[i] === list) return true;
+      done.push(list);
+      return false;
     }
 
-    var host = list.parentElement || list;
-    fixFirstCorner(host);
+    for (var r = 0; r < roots.length; r++) {
+      var root = roots[r];
+      var list = null;
 
-    if (hidden > 0) log('已隐藏 ' + hidden + ' 个礼物图标（保留「更多」与钻石）');
-    return hidden;
+      // A. 文本层
+      list = findByText(root);
+      if (list && !markDone(list)) {
+        var byText = hideIn(list, false);
+        if (byText > 0) { totalHidden += byText; st.byText += byText; }
+      }
+
+      // B. 几何层（文本层没结果时用，或补充几何层找到的）
+      list = findByGeometry(root);
+      if (list && !markDone(list)) {
+        var byGeom = hideIn(list, true);
+        if (byGeom > 0) { totalHidden += byGeom; st.byGeom += byGeom; }
+      }
+    }
+
+    // 圆角修正
+    if (totalHidden > 0) {
+      for (var d = 0; d < done.length; d++) {
+        try { fixFirstCorner(done[d].parentElement || done[d]); } catch (e) { }
+      }
+    }
+
+    st.hidden = totalHidden;
+    lastStats = st;
+    if (totalHidden > 0) log('已隐藏 ' + totalHidden + ' 个礼物图标（保留「更多」与钻石）');
+    return totalHidden;
   }
 
   // ---------------------------------------------------------------------
-  // 诊断：控制台执行 window.__DY_LIVE_GIFT_DUMP__()
+  // 诊断
   // ---------------------------------------------------------------------
+  function dump(limit) {
+    var roots = collectRoots();
+    var hits = [];
+
+    for (var r = 0; r < roots.length; r++) {
+      var all;
+      try { all = roots[r].querySelectorAll('*'); } catch (e) { continue; }
+      if (!all) continue;
+      for (var i = 0; i < all.length && hits.length < 300; i++) {
+        var t = textOf(all[i]);
+        if (t.indexOf('钻') < 0) continue;
+        if (t.length > 40) continue;
+        hits.push(t.length + ':"' + t.slice(0, 24) + '"');
+      }
+    }
+
+    hits.sort(function (a, b) { return parseInt(a, 10) - parseInt(b, 10); });
+    var shown = hits.slice(0, limit || 12);
+    log('诊断：roots=' + roots.length + '  含钻节点=' + hits.length + '  最短若干：' + shown.join(' | '));
+    return { roots: roots.length, diamonds: hits.length, shortest: shown };
+  }
+
   try {
-    window.__DY_LIVE_GIFT_DUMP__ = function () {
-      var roots = collectRoots();
-      var res = findItemList(roots);
-      var info = {
-        roots: roots.length,
-        giftNodes: res.total,
-        bestParentCount: res.bestCount,
-        samples: res.samples,
-        hiddenNow: document.querySelectorAll('[' + HIDDEN_ATTR + ']').length,
-      };
-      try { console.log(TAG + ' dump', info); } catch (e) { }
-      return info;
-    };
+    window.__DY_LIVE_GIFT_DUMP__ = function () { return dump(20); };
   } catch (e) { }
 
   function restore() {
@@ -287,20 +438,22 @@
     ensureStyle();
     var n = trimBar();
 
-    var extra = '';
-    if (lastStats) {
-      extra = '  [roots=' + lastStats.roots + ' 礼物节点=' + lastStats.total +
-              ' 最大父级=' + lastStats.bestCount +
-              (lastStats.samples.length ? ' 样例=' + lastStats.samples.join('|') : '') + ']';
-    }
-    log('已启动（首轮隐藏 ' + n + ' 个）' + extra + '  当前 URL=' + location.href);
+    log('已启动（首轮隐藏 ' + n + ' 个）  [roots=' + lastStats.roots +
+        ' 文本层=' + lastStats.byText + ' 几何层=' + lastStats.byGeom + ']  当前 URL=' + location.href);
 
-    // 礼物栏异步渲染（客户端比网页慢），多补几轮
-    [500, 1200, 2500, 4000, 7000, 11000, 16000, 22000].forEach(function (ms) {
+    // 首轮没隐藏就打出真实文本，便于定位
+    if (n === 0) { try { dump(12); } catch (e) { } }
+
+    [500, 1200, 2500, 4000, 7000, 11000, 16000, 22000, 30000].forEach(function (ms) {
       setTimeout(function () { try { ensureStyle(); trimBar(); } catch (e) { } }, ms);
     });
 
     startObserver();
+
+    // 视口变化（全屏 / 缩放）后重新定位
+    try {
+      window.addEventListener('resize', function () { try { schedule(); } catch (e) { } });
+    } catch (e) { }
   }
 
   if (document.readyState === 'loading') {
