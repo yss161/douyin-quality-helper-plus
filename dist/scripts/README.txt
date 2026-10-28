@@ -1,5 +1,5 @@
 抖音画质助手 · 纯 JS 脚本
-版本 2.0.5
+版本 2.0.6
 项目：https://github.com/yss161/douyin-quality-helper-plus
 
 这些脚本可以脱离 EXE 单独使用。

@@ -9,6 +9,84 @@
 
 ---
 
+## [2.0.6] - 2026-10-28
+
+**礼物栏精简：hook attachShadow 捕获 closed shadow root**
+
+2.0.5 的日志给出了决定性证据：
+
+```
+[dy-live-gift] 诊断：roots=1  含钻节点=16
+  最短若干：3:"充钻石" | 11:"充钻石壁纸通知消息投稿" | 13:"搜索充钻石壁纸通知消息投稿" | ...
+```
+
+两个事实：
+
+1. `roots=1` —— 只扫到了顶层 document，没有拿到任何 shadow root
+2. 含钻节点全是顶栏的「充钻石」，**礼物名（Thuglife / 小心心 / 棒棒糖）一个都没出现**
+
+礼物栏确实不在当前能访问的 DOM 里。
+
+### 根因：closed shadow root
+
+上游脚本用的是这个选择器：
+
+```css
+div[data-e2e="living-container"] >div> div:has(>pace-island>.gitBarOptimizeEnabled)
+```
+
+`pace-island` 是自定义元素，礼物栏装在它的 shadow root 里。
+如果这个 shadow root 是以 `mode: 'closed'` 创建的，那么：
+
+- `el.shadowRoot` 返回 **null**
+- `querySelectorAll` 穿不进去
+
+这就是为什么扫不到。
+
+### 改法：hook `Element.prototype.attachShadow`
+
+**唯一可靠的办法**是在 shadow root 被创建的那一刻抢下引用 ——
+无论 `open` 还是 `closed`，hook 都能拿到返回值：
+
+```js
+var orig = Element.prototype.attachShadow;
+Element.prototype.attachShadow = function (init) {
+  var sr = orig.apply(this, arguments);
+  shadowRoots.push(sr);   // closed 也能拿到
+  return sr;
+};
+```
+
+必须在页面渲染前装上 —— 脚本在 preload 阶段执行，正好赶在前面。
+已建好的 open shadow root 由 `seedOpenShadowRoots()` 兜底补收。
+
+### 验证
+
+模拟 `mode: 'closed'` 的 shadow root，对比修复前后：
+
+| | roots | 含钻节点 | 结果 |
+|---|---|---|---|
+| 修复前 | 1 | 0（只有顶栏误命中） | 隐藏 0 个 |
+| 修复后 | **2** | **24** | 隐藏 12 个 ✅ |
+
+open 模式同样通过。其余回归：上游选择器层 3 项全通过。
+
+### 诊断增强
+
+`dump` 现在会打印 `pace-island` 的 shadow 状态：
+
+```
+roots=2
+pace-island=1
+  [0] shadowRoot=null textLen=0 tag=PACE-ISLAND   <- closed，只能靠 hook
+gitBarOptimizeEnabled=1
+含钻=24 最短: 2:"1钻" | 3:"99钻" | ...
+```
+
+`shadowRoot=null` 但 `含钻>0` 就说明 hook 抓成功了。
+
+---
+
 ## [2.0.5] - 2026-10-28
 
 **礼物栏精简：改为「文本 + 几何」双层定位**

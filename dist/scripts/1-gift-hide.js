@@ -1,6 +1,6 @@
 /* ============================================================================
  * 抖音画质助手 · 直播间：精简礼物栏
- * 版本 2.0.5 ｜ https://github.com/yss161/douyin-quality-helper-plus
+ * 版本 2.0.6 ｜ https://github.com/yss161/douyin-quality-helper-plus
  *
  * 隐藏礼物图标，只留「更多」与钻石
  *
@@ -89,6 +89,58 @@
   }
 
   // ---------------------------------------------------------------------
+  // 捕获 shadow root（含 closed）
+  //
+  // 为什么必须这么做：
+  //   pace-island 这类 Web Components 可能用 mode:'closed' 创建 shadow root，
+  //   此时 el.shadowRoot 返回 null，document.querySelectorAll 也穿不进去。
+  //   结果是：礼物栏明明在页面上，脚本却一个节点都扫不到。
+  //
+  //   唯一可靠的办法是在 attachShadow 被调用时抢下引用 —— 无论 open 还是 closed
+  //   都能拿到。脚本在 preload 阶段执行，早于页面渲染，来得及。
+  // ---------------------------------------------------------------------
+  var shadowRoots = [];
+
+  (function hookAttachShadow() {
+    try {
+      var proto = Element.prototype;
+      if (!proto || proto.__dyShadowHooked) return;
+
+      var orig = proto.attachShadow;
+      if (typeof orig !== 'function') return;
+
+      proto.attachShadow = function (init) {
+        var sr = orig.apply(this, arguments);
+        try {
+          if (sr) {
+            var dup = false;
+            for (var i = 0; i < shadowRoots.length; i++) if (shadowRoots[i] === sr) { dup = true; break; }
+            if (!dup) shadowRoots.push(sr);
+          }
+        } catch (e) { }
+        return sr;
+      };
+
+      proto.__dyShadowHooked = true;
+    } catch (e) { }
+  })();
+
+  // 更早的 shadow root（在我 hook 之前就建好的）只能靠 open 的 .shadowRoot 拿
+  function seedOpenShadowRoots() {
+    try {
+      var all = document.querySelectorAll('*');
+      for (var i = 0; i < all.length; i++) {
+        var sr = null;
+        try { sr = all[i].shadowRoot; } catch (e) { }
+        if (!sr) continue;
+        var dup = false;
+        for (var j = 0; j < shadowRoots.length; j++) if (shadowRoots[j] === sr) { dup = true; break; }
+        if (!dup) shadowRoots.push(sr);
+      }
+    } catch (e) { }
+  }
+
+  // ---------------------------------------------------------------------
   // 收集所有根：document + 同源 iframe + shadow root
   // ---------------------------------------------------------------------
   function collectRoots() {
@@ -132,6 +184,15 @@
     }
 
     walk(document, window, 0);
+
+    // 把 hook 捕获到的 shadow root 全部纳入
+    seedOpenShadowRoots();
+    for (var s = 0; s < shadowRoots.length; s++) {
+      if (!seen(shadowRoots[s])) {
+        try { walk(shadowRoots[s], null, 1); } catch (e) { }
+      }
+    }
+
     return roots;
   }
 
@@ -250,6 +311,81 @@
   }
 
   // ---------------------------------------------------------------------
+  // C. 上游选择器层
+  // 上游「抖音优化」脚本一直在跟进改版，它的 :has() 选择器最贴近真实结构：
+  //   div[data-e2e="living-container"] >div> div:has(>pace-island>.gitBarOptimizeEnabled)
+  // 这里先找出 .gitBarOptimizeEnabled 附近的容器，再定位到礼物列表。
+  // ---------------------------------------------------------------------
+  function findByUpstream(root) {
+    // 找上游标记：.gitBarOptimizeEnabled 是"礼物栏整体"的标记，
+    // 它内部可能再套一层真正的礼物列表，所以不能直接拿它当 list。
+    var bar = null;
+    try { bar = root.querySelector('.gitBarOptimizeEnabled'); } catch (e) { }
+    if (!bar) {
+      try { bar = document.querySelector('.gitBarOptimizeEnabled'); } catch (e) { }
+    }
+
+    // 在 bar 里找"子项里带价格的个数最多"的那一层，就是真正的礼物列表
+    function deepestList(scope) {
+      var all;
+      try { all = scope.querySelectorAll('*'); } catch (e) { return null; }
+
+      var best = null, bestCount = 0;
+      var candidates = [scope];
+      if (all) for (var i = 0; i < all.length && i < 300; i++) candidates.push(all[i]);
+
+      for (var c = 0; c < candidates.length; c++) {
+        var node = candidates[c];
+        var kids = node.children;
+        if (!kids || kids.length < 2) continue;
+
+        var cnt = 0;
+        for (var k = 0; k < kids.length; k++) {
+          if (hasPrice(kids[k])) cnt++;
+        }
+        if (cnt > bestCount) { bestCount = cnt; best = node; }
+      }
+      return bestCount >= 2 ? best : null;
+    }
+
+    if (bar) {
+      var inner = deepestList(bar);
+      if (inner) return inner;
+      // bar 里没有带价格的子项（价格文案可能变了），
+      // 就退回"一排等宽方块"的判定
+      if (bar.children && bar.children.length >= 6 && isSimilarRow(bar)) return bar;
+      return null;
+    }
+
+    // 没有上游标记时，看 [data-e2e="gifts-container"]
+    try {
+      var gc = root.querySelector('[data-e2e="gifts-container"]');
+      if (gc) {
+        var g = deepestList(gc);
+        if (g) return g;
+        if (gc.children && gc.children.length >= 6 && isSimilarRow(gc)) return gc;
+      }
+    } catch (e) { }
+
+    // pace-island 的 open shadow root
+    try {
+      var pis = root.querySelectorAll('pace-island');
+      for (var i = 0; i < pis.length; i++) {
+        var sr = pis[i].shadowRoot;
+        if (!sr) continue;
+        var b2 = sr.querySelector('.gitBarOptimizeEnabled');
+        if (b2) {
+          var l2 = deepestList(b2);
+          if (l2) return l2;
+          if (b2.children && b2.children.length >= 6 && isSimilarRow(b2)) return b2;
+        }
+      }
+    } catch (e) { }
+
+    return null;
+  }
+
+  // ---------------------------------------------------------------------
   // 隐藏：只动 list 自己的子项，兄弟节点不碰
   // ---------------------------------------------------------------------
   function hideIn(list, trusted) {
@@ -326,7 +462,7 @@
 
     var roots = collectRoots();
     var totalHidden = 0;
-    var st = { roots: roots.length, byText: 0, byGeom: 0, hidden: 0 };
+    var st = { roots: roots.length, byUp: 0, byText: 0, byGeom: 0, hidden: 0 };
     var done = [];   // 已处理的 list，避免重复
 
     function markDone(list) {
@@ -338,6 +474,13 @@
     for (var r = 0; r < roots.length; r++) {
       var root = roots[r];
       var list = null;
+
+      // C. 上游选择器层（最贴近真实结构，优先）
+      list = findByUpstream(root);
+      if (list && !markDone(list)) {
+        var byUp = hideIn(list, true);
+        if (byUp > 0) { totalHidden += byUp; st.byUp = (st.byUp || 0) + byUp; }
+      }
 
       // A. 文本层
       list = findByText(root);
@@ -371,25 +514,51 @@
   // 诊断
   // ---------------------------------------------------------------------
   function dump(limit) {
+    var out = [];
+    out.push('roots=' + collectRoots().length);
+
+    // pace-island 检查（上游脚本用的容器）
+    try {
+      var pis = document.querySelectorAll('pace-island');
+      out.push('pace-island=' + pis.length);
+      for (var i = 0; i < pis.length && i < 4; i++) {
+        var e = pis[i];
+        out.push('  [' + i + '] shadowRoot=' + (e.shadowRoot ? 'OPEN' : 'null') +
+                 ' textLen=' + textOf(e).length +
+                 ' tag=' + e.tagName);
+      }
+    } catch (x) { }
+
+    // .gitBarOptimizeEnabled 是否存在（要遍历所有 roots，shadow 里 document 查不到）
+    try {
+      var barCount = 0;
+      var allRoots = collectRoots();
+      for (var br = 0; br < allRoots.length; br++) {
+        try { barCount += allRoots[br].querySelectorAll('.gitBarOptimizeEnabled').length; } catch (x) { }
+      }
+      out.push('gitBarOptimizeEnabled=' + barCount);
+    } catch (x) { }
+
+    // 所有含「钻」的短文本
     var roots = collectRoots();
     var hits = [];
-
     for (var r = 0; r < roots.length; r++) {
       var all;
       try { all = roots[r].querySelectorAll('*'); } catch (e) { continue; }
       if (!all) continue;
-      for (var i = 0; i < all.length && hits.length < 300; i++) {
-        var t = textOf(all[i]);
+      for (var j = 0; j < all.length && hits.length < 200; j++) {
+        var t = textOf(all[j]);
         if (t.indexOf('钻') < 0) continue;
         if (t.length > 40) continue;
-        hits.push(t.length + ':"' + t.slice(0, 24) + '"');
+        hits.push(t.length + ':"' + t.slice(0, 20) + '"');
       }
     }
-
     hits.sort(function (a, b) { return parseInt(a, 10) - parseInt(b, 10); });
-    var shown = hits.slice(0, limit || 12);
-    log('诊断：roots=' + roots.length + '  含钻节点=' + hits.length + '  最短若干：' + shown.join(' | '));
-    return { roots: roots.length, diamonds: hits.length, shortest: shown };
+    out.push('含钻=' + hits.length + ' 最短:' + hits.slice(0, limit || 10).join(' | '));
+
+    var msg = out.join('\n');
+    log('诊断\n' + msg);
+    return msg;
   }
 
   try {
@@ -397,8 +566,13 @@
   } catch (e) { }
 
   function restore() {
-    var marked = document.querySelectorAll('[' + HIDDEN_ATTR + ']');
-    for (var i = 0; i < marked.length; i++) marked[i].removeAttribute(HIDDEN_ATTR);
+    var roots = collectRoots();
+    for (var r = 0; r < roots.length; r++) {
+      var marked;
+      try { marked = roots[r].querySelectorAll('[' + HIDDEN_ATTR + ']'); } catch (e) { continue; }
+      if (!marked) continue;
+      for (var i = 0; i < marked.length; i++) marked[i].removeAttribute(HIDDEN_ATTR);
+    }
     removeStyle();
     log('已恢复礼物显示');
   }
@@ -448,7 +622,8 @@
     var n = trimBar();
 
     log('已启动（首轮隐藏 ' + n + ' 个）  [roots=' + lastStats.roots +
-        ' 文本层=' + lastStats.byText + ' 几何层=' + lastStats.byGeom + ']  当前 URL=' + location.href);
+        ' 上游层=' + (lastStats.byUp || 0) + ' 文本层=' + lastStats.byText +
+        ' 几何层=' + lastStats.byGeom + ']  当前 URL=' + location.href);
 
     // 首轮没隐藏就打出真实文本，便于定位
     if (n === 0) { try { dump(12); } catch (e) { } }
