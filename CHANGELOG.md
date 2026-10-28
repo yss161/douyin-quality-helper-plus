@@ -64,6 +64,14 @@ https://live.douyin.com/928003489865?enter_from_merge=link_share&enter_method=co
 两个模块的日志也加强了：启动时会打印当前 URL 与首轮隐藏数量，
 以后再失效可以直接从 `%APPDATA%\douyin\dy-force.log` 看出来。
 
+### 顺带清理：删除 standalone 冗余副本
+
+`injector/live-gift-hide.standalone.js` 和 `live-share-clean.standalone.js` 是手工维护的
+副本，发 2.0.1 时踩坑：版本号更新了但脚本内容还是旧的（`pack-scripts.ps1` 取的是副本）。
+
+这两个主文件本身就是独立的 IIFE（不依赖 `dy-host.js`，缺全局都有 `console.log` 降级），
+所以副本没有存在价值 —— 已删除，`pack-scripts.ps1` 直接取主文件。
+
 ---
 
 ## [2.0.0] - 2026-10-26
@@ -76,8 +84,8 @@ https://live.douyin.com/928003489865?enter_from_merge=link_share&enter_method=co
 
 | 发布名 | 源文件 | 作用 |
 |---|---|---|
-| `1-gift-hide.js` | `live-gift-hide.standalone.js` | 直播间精简礼物栏 |
-| `2-share-link-clean.js` | `live-share-clean.standalone.js` | 直播间复制链接去参数 |
+| `1-gift-hide.js` | `live-gift-hide.js` | 直播间精简礼物栏 |
+| `2-share-link-clean.js` | `live-share-clean.js` | 直播间复制链接去参数 |
 | `3-quality-force.js` | `payload.js` | 视频页强制最高画质 |
 | `4-gm-host.js` | `dy-host.js` | GM 兼容层 |
 

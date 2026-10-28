@@ -125,7 +125,7 @@ node tools\build-userscript.js        # GM 层 + 依赖 + 原版脚本 -> bundle
 **底部控制条（清晰度 / 全屏 / 音量）、弹幕、聊天区都保留**，视频画面不会压缩。
 
 - 随「① 一键启用最高画质」一起装好（已并入 `injector/userscript.bundle.js`）
-- 只想用这一个功能：把 `injector/live-gift-hide.standalone.js` 单独注入客户端即可
+- 只想用这一个功能：把 `injector/live-gift-hide.js` 单独注入客户端即可（它本身就是独立 IIFE，无外部依赖）
 - 临时恢复：在控制台执行 `window.__DY_LIVE_GIFT_HIDE__ = false;` 后刷新
 
 > 判定**不写死 class 名** —— 抖音的 class 是构建时哈希的，每次发版都会变。
@@ -148,7 +148,7 @@ https://live.douyin.com/785963955393
 ```
 
 - 随「① 一键启用最高画质」一起装好（已并入 `injector/userscript.bundle.js`）
-- 只想用这一个功能：把 `injector/live-share-clean.standalone.js` 单独注入客户端即可
+- 只想用这一个功能：把 `injector/live-share-clean.js` 单独注入客户端即可（同上）
 - 临时关闭：在控制台执行 `window.__DY_LIVE_SHARE_CLEAN__ = false;` 后刷新
 
 > 上游脚本的「修改复制链接内容」只处理**视频页**（选择器写死
@@ -199,7 +199,7 @@ node tools\build-userscript.js          # 重新打包，同时刷新内置副�
 | `3-quality-force.js` | 视频页强制最高画质 |
 | `4-gm-host.js` | GM 兼容层（跑油猴脚本用） |
 
-源文件在 `injector/*.standalone.js`，打包命令：
+源文件在 `injector/live-gift-hide.js` / `live-share-clean.js`（本身就是独立 IIFE），打包命令：
 
 ```powershell
 pwsh -File tools\pack-scripts.ps1
@@ -222,9 +222,7 @@ pwsh -File tools\pack-scripts.ps1
 | `injector/userscript.bundle.js` | 打包产物（自动生成） |
 | `injector/userscript.bundle.embedded.js` | 内置副本（gzip+base64，构建时生成） |
 | `injector/live-gift-hide.js` | 直播页隐藏礼物栏（已并入 bundle） |
-| `injector/live-gift-hide.standalone.js` | 同上，独立注入版（只要这个功能时用） |
 | `injector/live-share-clean.js` | 直播间复制链接优化（已并入 bundle） |
-| `injector/live-share-clean.standalone.js` | 同上，独立注入版 |
 | `injector/vendor/` | 用户脚本原文 + 4 个 UMD 依赖 |
 | `exe-src/ProcessKiller.cs` | 结束抖音进程的实现 |
 | `exe-src/PayloadComposer.cs` | 按注入方式组合 preload |

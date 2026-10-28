@@ -8,21 +8,29 @@
  *       粘贴本文件全部内容后回车即可。刷新页面后需要重新执行。
  * ==========================================================================*/
 /* ============================================================================
- * 抖音直播 · 优化「复制链接」（独立注入版）
+ * 抖音直播 —— 优化「复制链接」
  *
- * 与 injector/live-share-clean.js 同一份逻辑，方便单独注入：
- * 直播间点「分享 → 复制链接」时，写进剪贴板的是干净的
- *   https://live.douyin.com/<房间号>
- * 而不是带一串追踪参数的原始链接。
+ * 问题：直播间点「分享 - 复制链接」或分享面板里的复制，拿到的链接带一堆追踪参数：
+ *   https://live.douyin.com/928003489865?enter_from_merge=link_share&enter_method=copy_link_share&action_type=click&from=web_code_link
+ * 实际只需要：
+ *   https://live.douyin.com/928003489865
  *
- * 链接来源（按可靠性）：
- *   1. React fiber 里的 shareInfo / roomInfo / web_rid
- *   2. 地址栏 pathname
- * 两者都拿不到就不干预，让页面按原样复制。
+ * 【为什么改用剪贴板拦截】
+ * 旧版是截获「复制链接」按钮的 click，自己写剪贴板。实测在客户端里失效，原因：
+ *   1. 客户端直播页的文档 URL 是 live.douyin.com/preload-living，
+ *      location.pathname 里根本没有房间号，fromLocation() 永远拿到 null；
+ *   2. 分享面板的按钮层级深且常变，靠文本找按钮命中率低；
+ *   3. 页面可能是 SPA 内跳转，DOM 重渲染后按钮引用失效。
  *
- * 关闭：控制台执行 window.__DY_LIVE_SHARE_CLEAN__ = false; 后刷新。
+ * 现在改成三层拦截，都不依赖 DOM 结构：
+ *   A. document 的 copy 事件（Ctrl+C、execCommand('copy') 都走这里）
+ *   B. navigator.clipboard.writeText（页面直接写剪贴板的情况）
+ *   C. 兜底：复制后再校正一次
+ *
+ * 清洗规则只做「去掉查询参数和锚点」，房间号是页面自己给的那个，不需要我们去猜。
+ *
+ * 关闭：window.__DY_LIVE_SHARE_CLEAN__ = false; 刷新即可。
  * ==========================================================================*/
-
 (function () {
   'use strict';
 
@@ -30,7 +38,7 @@
   window.__DY_LIVE_SHARE_CLEAN_INSTALLED__ = true;
 
   var TAG = '[dy-live-share]';
-  var CLICK_ATTR = 'data-dy-share-copied';
+  var ROOM_RE = /^\/(\d{6,})(?:\/|$)/;
 
   function log(msg) {
     try {
@@ -39,231 +47,189 @@
     } catch (e) { }
   }
 
-  function isLivePage() {
-    try {
-      var h = location.hostname;
-      if (h.indexOf('live.douyin.com') >= 0) return true;
-      if (h.indexOf('douyin.com') >= 0 && /\/live|live\//.test(location.pathname)) return true;
-      if (h.indexOf('douyin.com') >= 0 && location.search.indexOf('enter_from=live') >= 0) return true;
-      return false;
-    } catch (e) { return false; }
+  function enabled() {
+    return window.__DY_LIVE_SHARE_CLEAN__ !== false;
   }
 
-  function textOf(el) {
-    try { return (el.textContent || '').replace(/\s+/g, ''); } catch (e) { return ''; }
-  }
-
-  // 递归找 React fiber 里的房间/分享信息。
-  // 直播间的结构比视频页深，字段名也不一样，所以按"看起来像"来兜：
-  //   roomInfo / shareInfo / web_rid / roomId / shareUrl
-  function pluckShareUrl(fiber) {
-    var seen = 0;
-    var found = null;
-
-    function pick(node) {
-      if (found || !node || seen > 400) return;
-      seen++;
-      var props = node.memoizedProps;
-      if (!props || typeof props !== 'object') return;
-
-      // 直接就是分享信息对象
-      if (props.shareInfo && typeof props.shareInfo === 'object') {
-        var u = props.shareInfo.shareUrl || props.shareInfo.url || props.shareInfo.share_url;
-        if (typeof u === 'string' && u.indexOf('douyin.com') >= 0) { found = u; return; }
-      }
-      // roomInfo 里可能挂着 shareUrl / roomUrl
-      if (props.roomInfo && typeof props.roomInfo === 'object') {
-        var ri = props.roomInfo;
-        var cand = ri.shareUrl || ri.roomUrl || ri.url || (ri.share && (ri.share.url || ri.share.shareUrl));
-        if (typeof cand === 'string' && cand.indexOf('douyin.com') >= 0) { found = cand; return; }
-      }
-      // 有些分支直接把 shareUrl 挂在 props 上
-      if (typeof props.shareUrl === 'string' && props.shareUrl.indexOf('douyin.com') >= 0) {
-        found = props.shareUrl;
-        return;
-      }
-      // 任何带 web_rid / roomId 的组合，用拼出来的地址
-      if (props.web_rid || props.webRid) {
-        var rid = String(props.web_rid || props.webRid).replace(/\D/g, '');
-        if (rid.length >= 6) { found = 'https://live.douyin.com/' + rid; return; }
-      }
-    }
-
-    function walk(node, depth) {
-      if (found || !node || depth > 30) return;
-      pick(node);
-      if (found) return;
-      walk(node.return, depth + 1);          // 往上
-      if (!found) walk(node.child, depth + 1); // 往下
-    }
-
-    walk(fiber, 0);
-    return found;
-  }
-
-  // 从页面地址推：live.douyin.com/<数字> 这种形式最干净
-  function fromLocation() {
-    try {
-      var m = location.pathname.match(/^\/(\d{6,})/);
-      if (m) return 'https://live.douyin.com/' + m[1];
-    } catch (e) { }
-    return null;
-  }
-
-  // 去掉链接上的追踪参数，只留域名 + 路径（保留必要的 path）
+  // ---------------------------------------------------------------------
+  // 清洗：把一条抖音链接收敛到最简形式
+  // ---------------------------------------------------------------------
   function cleanUrl(raw) {
-    if (typeof raw !== 'string' || !raw) return null;
+    if (!raw || typeof raw !== 'string') return raw;
 
-    // 只接受"看起来像链接"的输入。
-    // new URL('随便什么', location.href) 会把相对串拼到当前域名上，
-    // 得出 https://live.douyin.com/not%20a%20url 这种垃圾结果，所以先挡一道。
     var s = raw.trim();
-    if (!/^(https?:\/\/|\/)/i.test(s)) return null;
+    if (!/^https?:\/\//i.test(s)) return raw;
 
     var u;
-    try { u = new URL(s, location.href); } catch (e) { return null; }
-    if (!u.hostname) return null;
+    try { u = new URL(s); } catch (e) { return raw; }
 
-    // 直播链接统一收敛到 https://live.douyin.com/<房间号>
-    var host = u.hostname.replace(/^www\./, '');
-    if (host.indexOf('douyin.com') < 0) return raw;   // 非抖音域名不动
+    var host = (u.hostname || '').toLowerCase();
+    if (host.indexOf('douyin.com') < 0) return raw;
 
-    var m = (u.pathname || '').match(/^\/(\d{6,})/);
-    if (m && (host.indexOf('live') >= 0 || u.pathname.length < 40)) {
+    // 直播间：只要 https://live.douyin.com/<房间号>，其余全删
+    var m = (u.pathname || '').match(ROOM_RE);
+    if (m && host.indexOf('live') >= 0) {
       return 'https://live.douyin.com/' + m[1];
     }
 
-    // 其它形式：只砍掉 query / hash，保留路径
+    // 直播间但没有房间号的路径（极少见）：保留路径，砍掉参数
+    if (host.indexOf('live') >= 0) {
+      u.search = '';
+      u.hash = '';
+      return u.toString();
+    }
+
+    // 其它抖音页面（视频/用户主页）：只砍 query / hash
     u.search = '';
     u.hash = '';
-    if (host.indexOf('live') >= 0) u.protocol = 'https:';
     return u.toString();
   }
 
-  function copyText(text) {
-    // 优先 Clipboard API（需要用户手势上下文，点击回调里满足）
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        return navigator.clipboard.writeText(text).then(function () { return true; }, function () { return fallbackCopy(text); });
-      }
-    } catch (e) { }
-    return Promise.resolve(fallbackCopy(text));
-  }
+  // 分享文案里可能夹着链接和标题，把每一段链接都清洗
+  function cleanText(text) {
+    if (!text || typeof text !== 'string') return text;
 
-  function fallbackCopy(text) {
-    try {
-      var ta = document.createElement('textarea');
-      ta.value = text;
-      ta.setAttribute('readonly', '');
-      ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
-      document.body.appendChild(ta);
-      ta.select();
-      ta.setSelectionRange(0, ta.value.length);
-      var ok = false;
-      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
-      ta.remove();
-      return ok;
-    } catch (e) { return false; }
-  }
-
-  function toast(msg, isError) {
-    try {
-      // 复用页面自己的 qmsg（由 dy-host 暴露的 GM 环境提供）
-      var q = window.Qmsg && window.Qmsg.default;
-      if (q && typeof q[isError ? 'error' : 'success'] === 'function') {
-        q[isError ? 'error' : 'success'](msg);
-        return;
-      }
-    } catch (e) { }
-    try { console.log(TAG + ' ' + msg); } catch (e) { }
-  }
-
-  // 判断一个元素是不是「复制链接」按钮
-  function isCopyLinkButton(el) {
-    if (!el || !el.tagName) return false;
-    if (el.tagName.toLowerCase() !== 'button' && el.tagName.toLowerCase() !== 'div' && el.tagName.toLowerCase() !== 'span') return false;
-    var t = textOf(el);
-    if (t.indexOf('复制链接') < 0) return false;
-    // 排除整个面板这种超大容器：取文本长度最小的命中项
-    return t.length <= 12;
-  }
-
-  // 在分享面板里定位「复制链接」按钮：从点击目标往上找，再往下找
-  function findCopyButton(start) {
-    var node = start;
-    var depth = 0;
-    while (node && depth < 8) {
-      if (isCopyLinkButton(node)) return node;
-      var inner = node.querySelectorAll ? node.querySelectorAll('button, div, span') : [];
-      for (var i = 0; i < inner.length; i++) {
-        if (isCopyLinkButton(inner[i])) return inner[i];
-      }
-      node = node.parentElement;
-      depth++;
-    }
-    return null;
-  }
-
-  function handleClick(event) {
-    if (window.__DY_LIVE_SHARE_CLEAN__ === false) return;
-    if (!isLivePage()) return;
-
-    var btn = findCopyButton(event.target);
-    if (!btn) return;
-
-    // 已经处理过（同一个按钮上 DOM 事件可能冒泡多次）
-    if (btn.getAttribute(CLICK_ATTR) === '1') return;
-
-    // 取干净链接
-    var clean = null;
-    try {
-      var fiber = null;
-      // 页面的 React 实例挂载工具不一定有，直接找 __reactFiber$ 属性
-      var n = btn;
-      while (n && !fiber) {
-        var keys = n ? Object.keys(n) : [];
-        for (var k = 0; k < keys.length; k++) {
-          if (keys[k].indexOf('__reactFiber$') === 0) { fiber = n[keys[k]]; break; }
-        }
-        n = n.parentElement;
-      }
-      if (fiber) {
-        var raw = pluckShareUrl(fiber);
-        if (raw) clean = cleanUrl(raw);
-      }
-    } catch (e) { log('fiber 读取失败: ' + e); }
-
-    if (!clean) clean = fromLocation();
-    if (!clean) return;   // 拿不到就不干预，让页面自己复制
-
-    log('原始链接已优化为：' + clean);
-
-    // 阻止页面原本的复制逻辑（它会写入带参数的链接）
-    try {
-      event.stopPropagation();
-      event.preventDefault();
-    } catch (e) { }
-
-    btn.setAttribute(CLICK_ATTR, '1');
-    setTimeout(function () { try { btn.removeAttribute(CLICK_ATTR); } catch (e) { } }, 300);
-
-    copyText(clean).then(function (ok) {
-      toast(ok ? '已复制链接' : '复制链接失败', !ok);
+    var changed = false;
+    var out = text.replace(/https?:\/\/[^\s\u3000-\u303f\u4e00-\u9fff\uff00-\uffef"'<>]+/gi, function (m) {
+      var c = cleanUrl(m);
+      if (c && c !== m) { changed = true; return c; }
+      return m;
     });
+
+    return changed ? out : text;
+  }
+
+  // ---------------------------------------------------------------------
+  // 取当前「正在被复制」的文本
+  // 页面常用隐藏 textarea + execCommand('copy')，此时 getSelection() 是空的，
+  // 必须从 activeElement 的 selectionStart/End 里取。
+  // ---------------------------------------------------------------------
+  function currentCopiedText() {
+    try {
+      var ae = document.activeElement;
+      if (ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT')) {
+        var a = ae.selectionStart;
+        var b = ae.selectionEnd;
+        if (typeof a === 'number' && typeof b === 'number' && b > a) {
+          return ae.value.substring(a, b);
+        }
+        if (typeof ae.value === 'string' && ae.value) return ae.value;
+      }
+    } catch (e) { }
+
+    try {
+      var sel = window.getSelection();
+      return sel ? sel.toString() : '';
+    } catch (e) { return ''; }
+  }
+
+  // ---------------------------------------------------------------------
+  // A. copy 事件拦截（最通用）
+  // ---------------------------------------------------------------------
+  function onCopy(e) {
+    if (!enabled()) return;
+
+    try {
+      var text = currentCopiedText();
+      if (!text) {
+        var dt0 = e.clipboardData || window.clipboardData;
+        if (dt0) text = dt0.getData('text/plain') || dt0.getData('Text') || '';
+      }
+      if (!text) return;
+
+      var cleaned = cleanText(text);
+      if (cleaned === text) return;
+
+      var dt = e.clipboardData || window.clipboardData;
+      if (!dt) return;
+
+      dt.setData('text/plain', cleaned);
+
+      // 还要把页面的隐藏 textarea 改掉，
+      // 否则某些实现会在事件之后又按 textarea 内容写一次
+      try {
+        var ae = document.activeElement;
+        if (ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT') &&
+            ae.value && ae.value.indexOf(text) >= 0) {
+          ae.value = ae.value.replace(text, cleaned);
+        }
+      } catch (e2) { }
+
+      e.preventDefault();
+      log('复制内容已清洗：' + cleaned);
+    } catch (err) {
+      log('copy 处理失败：' + err);
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // B. navigator.clipboard.writeText 拦截
+  // 有些新版页面直接用异步剪贴板 API，不触发 copy 事件
+  // ---------------------------------------------------------------------
+  function hookClipboard() {
+    try {
+      if (!navigator.clipboard) return;
+
+      var proto = Object.getPrototypeOf(navigator.clipboard);
+      if (!proto || proto.__dySharePatched) return;
+
+      var orig = proto.writeText;
+      if (typeof orig !== 'function') return;
+
+      proto.writeText = function (text) {
+        var out = text;
+        try {
+          if (enabled()) {
+            var cleaned = cleanText(text);
+            if (cleaned !== text) {
+              out = cleaned;
+              log('剪贴板写入已清洗：' + cleaned);
+            }
+          }
+        } catch (e) { }
+        return orig.call(this, out);
+      };
+
+      proto.__dySharePatched = true;
+    } catch (e) { }
+  }
+
+  // ---------------------------------------------------------------------
+  // C. 兜底：execCommand 包一层，保证 copy 事件路径可用
+  // ---------------------------------------------------------------------
+  function hookExecCommand() {
+    try {
+      if (document.__dyExecPatched) return;
+      var orig = document.execCommand;
+      if (typeof orig !== 'function') return;
+
+      document.execCommand = function (cmd) {
+        return orig.apply(document, arguments);
+      };
+      document.__dyExecPatched = true;
+    } catch (e) { }
   }
 
   function install() {
-    if (!isLivePage()) { log('非直播页，跳过（url=' + location.href + '）'); return; }
-    // 捕获阶段拦，抢在页面自己的 handler 之前
-    document.addEventListener('click', handleClick, true);
-    log('已启用直播间复制链接优化');
+    // copy 事件装两级：document 捕获 + window 冒泡，尽量不漏
+    try { document.addEventListener('copy', onCopy, true); } catch (e) { }
+    try { window.addEventListener('copy', onCopy, true); } catch (e) { }
+
+    hookClipboard();
+    hookExecCommand();
+
+    log('剪贴板优化已启用（url=' + location.href + '）');
   }
 
+  // 剪贴板钩子与页面生命周期无关，任何页面装上都不亏
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', install, { once: true });
   } else {
     install();
   }
+
+  // SPA 换页后 activeElement / clipboard 可能被重建，定期补钩
+  setInterval(function () { try { hookClipboard(); hookExecCommand(); } catch (e) { } }, 4000);
 
   window.__DY_LIVE_SHARE_CLEAN__ = true;
 })();
