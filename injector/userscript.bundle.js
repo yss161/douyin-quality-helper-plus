@@ -4,11 +4,11 @@
  * 内容：GM 兼容层 + 左侧栏设置入口 + UMD 依赖 + 原版用户脚本
  * 重新生成：node tools/build-userscript.js
  *
- * 版本：20261028012926（装载器据此判断内外部脚本谁更新）
+ * 版本：20261028020310（装载器据此判断内外部脚本谁更新）
  * =========================================================================*/
 ;(function () {
   var __dyBundleStart = Date.now();
-  try { window.__DY_BUNDLE_VERSION__ = 20261028012926; } catch (e) {}
+  try { window.__DY_BUNDLE_VERSION__ = 20261028020310; } catch (e) {}
 
 /* ==== dy-host ==== */
 /* ============================================================================
@@ -29239,18 +29239,26 @@
  * 效果：底部礼物栏里的每个礼物图标全部隐去，只留下：
  *         - 「更多 >」按钮  —— 点开就是完整礼物面板（二级菜单）
  *         - 钻石数量        —— 充值/余额显示
+ *         - 其它非礼物入口（如「游戏 >」）—— 不是礼物，不动
  *
- * 【为什么不再依赖 .gitBarOptimizeEnabled】
- * 旧版靠这个 class 定位礼物栏。客户端新版本里它已经不存在（日志里从未打印
- * 「已隐藏 N 个」），所以整块逻辑静默失效。
+ * 【结构（关键）】
+ *   row
+ *    ├─ list        <- 礼物列表容器：直接子项全是礼物
+ *    │    ├─ item(99钻)
+ *    │    ├─ item(1钻)
+ *    │    └─ ... 十几个
+ *    ├─ more        <- 「更多 >」，是 list 的**兄弟节点**
+ *    ├─ diamond     <- 钻石，也是兄弟
+ *    └─ game        <- 「游戏 >」，也是兄弟
  *
- * 现在改成完全的「文本特征 + 结构」判定，与 class 名解耦：
- *   1. 先找页面里所有含「钻」的叶子块（礼物项的定价文本，如 9999钻、1钻）
- *   2. 它们的共同祖先，且子节点里有「更多」的，就是礼物栏
- *   3. 栏内除「更多」和钻石之外的同级项，全部打标记隐藏
+ *   所以不能要求「同一容器的子项里既有礼物又有『更多』」—— 那个条件永远不成立。
+ *   正确做法：找到**礼物列表容器**（直接子项含「钻」最多的那个），
+ *             只隐藏它自己的子项，兄弟节点一律不碰。
  *
- * 因为抖音的 class 是构建时哈希的（xAG9cqUC / saw7uCUW …）每次发版都会变，
- * 只有文本是稳定的。
+ * 为什么不写死 class 名：
+ *   抖音的 class 是构建时哈希的（xAG9cqUC / saw7uCUW …），每次发版都会变。
+ *   这里用「文本特征」判定，只有文本稳定：
+ *     带价格的礼物项 -> 文本里有「钻」（如 99钻、1钻、299钻）
  *
  * 另外仍然隐藏：送礼全屏特效、飘屏。
  *
@@ -29299,81 +29307,45 @@
     try { return (el.textContent || '').replace(/\s+/g, ''); } catch (e) { return ''; }
   }
 
-  // 礼物项的定价文本：整段里只有「数字+钻」或含「钻」
+  // 礼物项：文本短、含「钻」
   function hasPrice(el) {
     var t = textOf(el);
     if (t.indexOf('钻') < 0) return false;
-    if (t.length > 14) return false;          // 太长的多半是整块容器
+    if (t.length > 16) return false;
     return true;
   }
 
-  function looksLikeMore(el) {
-    var t = textOf(el);
-    if (t.length > 6) return false;
-    return t.indexOf('更多') >= 0;
-  }
-
-  function isDiamond(el) {
-    try {
-      if (el.classList && el.classList.contains('giftRechargeContaner')) return true;
-      if (el.querySelector && el.querySelector('.giftRechargeContaner')) return true;
-    } catch (e) { }
-    return false;
-  }
-
   // ---------------------------------------------------------------------
-  // 找礼物栏：含「钻」的叶子块的共同祖先里，子节点带「更多」的那个
+  // 找礼物列表容器：直接子项里「带价格」的个数最多，且至少 2 个
   // ---------------------------------------------------------------------
-  function findGiftBar() {
+  function findItemList() {
     var all;
-    try { all = document.querySelectorAll('div, li, span'); } catch (e) { return null; }
+    try { all = document.querySelectorAll('div, ul, li'); } catch (e) { return null; }
 
-    // 收集所有「带价格的礼物项」
-    var items = [];
-    for (var i = 0; i < all.length && items.length < 60; i++) {
-      if (hasPrice(all[i])) items.push(all[i]);
-    }
-    if (items.length < 2) return null;
+    var best = null, bestScore = 0;
 
-    // 从某个礼物项往上走，第一个「子节点里既有礼物项又有「更多」」的容器就是礼物栏
-    var start = items[0];
-    var node = start;
-    for (var depth = 0; node && depth < 8; depth++) {
+    for (var i = 0; i < all.length; i++) {
+      var node = all[i];
       var kids = node.children;
-      var priceKids = 0, hasMore = false, hasDiamond = false;
+      if (!kids || kids.length < 2) continue;
 
-      for (var k = 0; k < kids.length; k++) {
-        if (hasPrice(kids[k])) priceKids++;
-        if (looksLikeMore(kids[k])) hasMore = true;
-        if (isDiamond(kids[k])) hasDiamond = true;
+      var score = 0;
+      for (var j = 0; j < kids.length; j++) {
+        if (hasPrice(kids[j])) score++;
       }
 
-      // 礼物栏的特征：至少 2 个带价礼物 + 有「更多」入口
-      if (priceKids >= 2 && hasMore) return node;
-
-      node = node.parentElement;
+      if (score > bestScore) { bestScore = score; best = node; }
     }
 
-    // 退一步：没有「更多」但有多个带价礼物 + 钻石，也算
-    node = start;
-    for (var d2 = 0; node && d2 < 8; d2++) {
-      var ps = 0, dm = false;
-      for (var j = 0; j < node.children.length; j++) {
-        if (hasPrice(node.children[j])) ps++;
-        if (isDiamond(node.children[j])) dm = true;
-      }
-      if (ps >= 3 && dm) return node;
-      node = node.parentElement;
-    }
-
-    return null;
+    // 至少两个带价礼物，才认为是礼物列表（避免误伤偶出现了「钻」字的区域）
+    return bestScore >= 2 ? best : null;
   }
 
   // 礼物项原本是"一整条"：第一个带左圆角，最后一个带右圆角。
   // 藏掉前面的之后，最先露出来的那块会变成"左直角 + 右圆角"，看起来像被切了角。
-  function fixFirstCorner(bar) {
+  function fixFirstCorner(host) {
     var all;
-    try { all = bar.querySelectorAll('*'); } catch (e) { return; }
+    try { all = host.querySelectorAll('*'); } catch (e) { return; }
 
     var target = null, targetX = Infinity;
     for (var i = 0; i < all.length; i++) {
@@ -29407,20 +29379,23 @@
   function trimBar() {
     if (!enabled()) { restore(); return 0; }
 
-    var bar = findGiftBar();
-    if (!bar) return 0;   // 礼物栏还没渲染出来，等下一轮
+    var list = findItemList();
+    if (!list) return 0;   // 礼物栏还没渲染出来，等下一轮
 
     var hidden = 0;
-    for (var i = 0; i < bar.children.length; i++) {
-      var child = bar.children[i];
-      if (looksLikeMore(child) || isDiamond(child)) continue;   // 这两个保留
+    for (var i = 0; i < list.children.length; i++) {
+      var child = list.children[i];
+      if (!hasPrice(child)) continue;               // 只隐藏礼物项
       if (child.getAttribute(HIDDEN_ATTR) === '1') continue;
       child.setAttribute(HIDDEN_ATTR, '1');
       hidden++;
     }
 
-    fixFirstCorner(bar);
-    if (hidden > 0) log('已隐藏 ' + hidden + ' 个礼物图标，保留「更多」与钻石');
+    // 圆角修正：隐藏后在父级范围内找"最左边那块"，通常就是「更多」
+    var host = list.parentElement || list;
+    fixFirstCorner(host);
+
+    if (hidden > 0) log('已隐藏 ' + hidden + ' 个礼物图标（保留「更多」与钻石）');
     return hidden;
   }
 
@@ -29476,8 +29451,8 @@
     var n = trimBar();
     log('已启动（首轮隐藏 ' + n + ' 个）  当前 URL=' + location.href);
 
-    // 礼物栏异步渲染，多补几轮（客户端里比网页慢）
-    [500, 1200, 2500, 4000, 7000, 11000].forEach(function (ms) {
+    // 礼物栏异步渲染（客户端比网页慢），多补几轮
+    [500, 1200, 2500, 4000, 7000, 11000, 16000].forEach(function (ms) {
       setTimeout(function () { try { ensureStyle(); trimBar(); } catch (e) { } }, ms);
     });
 

@@ -1,6 +1,6 @@
 /* ============================================================================
  * 抖音画质助手 · 视频：强制最高画质
- * 版本 2.0.2 ｜ https://github.com/yss161/douyin-quality-helper-plus
+ * 版本 2.0.3 ｜ https://github.com/yss161/douyin-quality-helper-plus
  *
  * 写入 sessionStorage 的 MANUAL_SWITCH
  *
