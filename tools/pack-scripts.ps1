@@ -26,14 +26,13 @@ if (Test-Path $verFile) {
 
 # 脚本清单：源文件 -> 发布名 -> 说明
 #
-# 注意：直接取主文件（live-gift-hide.js / live-share-clean.js），
+# 注意：直接取主文件（live-share-clean.js），
 # 不再用 *.standalone.js —— 那是手工维护的副本，很容易和主文件不同步
 # （2.0.1 发布时就踩过这个坑：版本号更新了，脚本内容还是旧的）。
 $items = @(
-  @{ src = 'live-gift-hide.js';   name = '1-gift-hide.js';        title = '直播间：精简礼物栏';   desc = '隐藏礼物图标，只留「更多」与钻石' },
-  @{ src = 'live-share-clean.js'; name = '2-share-link-clean.js'; title = '直播间：优化复制链接'; desc = '复制的链接去掉追踪参数' },
-  @{ src = 'payload.js';          name = '3-quality-force.js';    title = '视频：强制最高画质';   desc = '写入 sessionStorage 的 MANUAL_SWITCH' },
-  @{ src = 'dy-host.js';          name = '4-gm-host.js';          title = 'GM 兼容层';            desc = '让油猴脚本能在客户端里跑（进阶）' }
+  @{ src = 'live-share-clean.js'; name = '1-share-link-clean.js'; title = '直播间：优化复制链接'; desc = '复制的链接去掉追踪参数' },
+  @{ src = 'payload.js';          name = '2-quality-force.js';    title = '视频：强制最高画质';   desc = '写入 sessionStorage 的 MANUAL_SWITCH' },
+  @{ src = 'dy-host.js';          name = '3-gm-host.js';          title = 'GM 兼容层';            desc = '让油猴脚本能在客户端里跑（进阶）' }
 )
 
 $copied = @()
@@ -81,19 +80,15 @@ $readme = @"
 
 【脚本清单】
 
-  1-gift-hide.js          直播间：精简礼物栏
-                          隐藏礼物图标，只留「更多」入口与钻石
-                          临时恢复：window.__DY_LIVE_GIFT_HIDE__ = false;
-
-  2-share-link-clean.js   直播间：优化复制链接
+  1-share-link-clean.js   直播间：优化复制链接
                           点「分享-复制链接」拿到的是干净链接
                           临时关闭：window.__DY_LIVE_SHARE_CLEAN__ = false;
 
-  3-quality-force.js      视频：强制最高画质
+  2-quality-force.js      视频：强制最高画质
                           写入 sessionStorage 的 MANUAL_SWITCH
                           这是 EXE 版「一键启用」在页面侧做的那部分
 
-  4-gm-host.js            GM 兼容层（进阶）
+  3-gm-host.js            GM 兼容层（进阶）
                           提供 GM_* API + 左侧栏设置入口，
                           用来跑油猴脚本（如「抖音优化」）
 

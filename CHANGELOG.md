@@ -9,6 +9,58 @@
 
 ---
 
+## [2.1.0] - 2026-10-28
+
+**移除礼物栏精简功能**
+
+礼物栏精简在 2.0.0 ~ 2.0.6 之间迭代了 6 个版本仍未在真机生效，
+每轮都要靠用户截图 + 日志反馈来定位，成本过高，决定整体移除。
+
+### 为什么放弃
+
+抖音直播页的礼物栏一直在变，且越来越难定位：
+
+| 尝试 | 结果 |
+|---|---|
+| 按 class `.gitBarOptimizeEnabled` 定位 | 类名哈希化，且在新版已不存在 |
+| 按文本特征（含「钻」）定位 | 只命中顶栏的「充钻石」，礼物名一个扫不到 |
+| 按兄弟节点结构定位 | 「更多」是兄弟节点，判定条件永远不成立 |
+| 遍历 Shadow DOM | `roots=1`，拿不到 shadow root |
+| 几何定位（底部一排等宽方块） | 服务端渲染，采样不到 |
+| hook `attachShadow` | 仍未解决真机问题 |
+
+根本矛盾：**礼物栏的 DOM 结构没有稳定特征**，每次抖音改版都要重新逆向。
+相比之下，「强制最高画质」和「复制链接」都有稳定的判断依据，所以保留。
+
+### 移除范围
+
+| 项 | 处理 |
+|---|---|
+| `injector/live-gift-hide.js` | 删除 |
+| `tools/build-userscript.js` 的 parts | 移除 `live-gift-hide` 项（8 → 7 parts） |
+| `tools/pack-scripts.ps1` 的脚本清单 | 移除 `1-gift-hide.js`，其余编号前移 |
+| README 的「精简直播间礼物栏」章节 | 删除 |
+| Release v2.0.1 ~ v2.0.6 | 删除（均为礼物修复版本） |
+| Release v2.0.0 的脚本附件 | 移除 `1-gift-hide.js` |
+
+### 保留
+
+- **强制最高画质**：`injector/payload.js`
+- **复制链接优化**：`injector/live-share-clean.js`
+- **抖音优化脚本**（第三方）：`injector/vendor/douyin-optimize.js`
+- **GM 兼容层**：`injector/dy-host.js`
+- **自动更新检测**：`exe-src/UpdateChecker.cs`
+
+### 现在的纯 JS 脚本清单
+
+| 文件 | 作用 |
+|---|---|
+| `1-share-link-clean.js` | 直播间复制链接去追踪参数 |
+| `2-quality-force.js` | 视频页强制最高画质 |
+| `3-gm-host.js` | GM 兼容层 |
+
+---
+
 ## [2.0.6] - 2026-10-28
 
 **礼物栏精简：hook attachShadow 捕获 closed shadow root**
