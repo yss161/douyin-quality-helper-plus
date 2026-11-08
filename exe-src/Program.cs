@@ -64,6 +64,7 @@ namespace DouyinQualityHelper
                     return 0;
                 }
                 if (cmd == "--kill" || cmd == "/kill") return KillCli(args);
+                if (cmd == "--autoupdate" || cmd == "/autoupdate") return AutoUpdateCli(args);
             }
 
             var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
@@ -103,6 +104,66 @@ namespace DouyinQualityHelper
         /// 不传 --root 时用 config.json 里记住的目录；再没有就按进程名判断。
         /// 退出码：0 = 全部结束；3 = 还有进程没结束（通常是权限不够）。
         /// </summary>
+        /// <summary>
+        /// 命令行：禁止 / 恢复 / 查看抖音自动更新状态。
+        ///   --autoupdate status  [--root DIR]
+        ///   --autoupdate disable [--root DIR]
+        ///   --autoupdate enable  [--root DIR]
+        /// 不给 --root 时用 config.json 里记住的目录。
+        /// </summary>
+        static int AutoUpdateCli(string[] args)
+        {
+            string action = null, root = null;
+            for (int i = 1; i < args.Length; i++)
+            {
+                string a = args[i];
+                if ((a == "--root" || a == "--dir") && i + 1 < args.Length) root = args[++i];
+                else if (a.StartsWith("--root=", StringComparison.Ordinal)) root = a.Substring(7);
+                else if (action == null && !a.StartsWith("-", StringComparison.Ordinal)) action = a.ToLowerInvariant();
+            }
+            if (action == null) action = "status";
+
+            if (string.IsNullOrEmpty(root)) root = Config.ReadDouyinDir();
+            if (string.IsNullOrEmpty(root))
+            {
+                Console.Error.WriteLine("需要 --root <抖音安装目录>，或先运行 GUI 记住目录");
+                return 2;
+            }
+
+            if (action == "disable")
+            {
+                string err = AutoUpdateBlocker.Disable(root);
+                if (err != null) { Console.Error.WriteLine("[x] " + err); return 1; }
+                Console.WriteLine("[ok] 已禁止自动更新");
+                action = "status";
+            }
+            else if (action == "enable")
+            {
+                string err = AutoUpdateBlocker.Enable(root);
+                if (err != null) { Console.Error.WriteLine("[x] " + err); return 1; }
+                Console.WriteLine("[ok] 已恢复自动更新");
+                action = "status";
+            }
+            else if (action != "status")
+            {
+                Console.Error.WriteLine("未知操作：" + action + "（可用 status / disable / enable）");
+                return 2;
+            }
+
+            AutoUpdateState st = AutoUpdateBlocker.Inspect(root);
+            Console.WriteLine("root      : " + root);
+            Console.WriteLine("config    : " + st.ConfigPath);
+            Console.WriteLine("found     : " + st.ConfigFound);
+            Console.WriteLine("need_update: " + st.NeedUpdate);
+            Console.WriteLine("read-only : " + st.IsReadOnly);
+            Console.WriteLine("blocked   : " + st.Blocked);
+            if (st.PendingFields.Count > 0)
+                Console.WriteLine("pending   : " + string.Join(", ", st.PendingFields.ToArray()));
+            if (st.Error != null) Console.WriteLine("error     : " + st.Error);
+            else Console.WriteLine("detail    : " + st.Detail);
+            return st.ConfigFound ? 0 : 1;
+        }
+
         static int KillCli(string[] args)
         {
             string root = null;
@@ -264,6 +325,56 @@ namespace DouyinQualityHelper
                 Check("process roles", ProcessKiller.RoleOf("douyin") == "主程序"
                                        && ProcessKiller.RoleOf("douyin_guard") == "守护进程"
                                        && ProcessKiller.RoleOf("parfait_crash_handler") == "崩溃上报", null);
+                // --- 禁止自动更新（用临时目录，不碰真实抖音） ---
+                {
+                    string tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dy-au-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                    try
+                    {
+                        System.IO.Directory.CreateDirectory(tmp);
+                        string cfg = System.IO.Path.Combine(tmp, "launcher_config.json");
+                        System.IO.File.WriteAllText(cfg,
+                            "{\"app_name\":\"douyin\",\"cur_path\":\"8.8.0\",\"installer_path\":\"x.exe\",\"need_update\":true}",
+                            new System.Text.UTF8Encoding(false));
+
+                        AutoUpdateState s0 = AutoUpdateBlocker.Inspect(tmp);
+                        Check("auto-update: reads need_update", s0.ConfigFound && s0.NeedUpdate && !s0.Blocked, s0.Detail);
+                        Check("auto-update: detects pending package", s0.PendingFields.Count == 1, "pending=" + s0.PendingFields.Count);
+
+                        string e1 = AutoUpdateBlocker.Disable(tmp);
+                        AutoUpdateState s1 = AutoUpdateBlocker.Inspect(tmp);
+                        Check("auto-update: disable ok", e1 == null && s1.Blocked, e1 == null ? s1.Detail : e1);
+                        Check("auto-update: need_update false", !s1.NeedUpdate, null);
+                        Check("auto-update: file read-only", s1.IsReadOnly, null);
+                        Check("auto-update: pending cleared", s1.PendingFields.Count == 0, null);
+
+                        string after = System.IO.File.ReadAllText(cfg);
+                        Check("auto-update: keeps other fields",
+                            after.Contains("app_name") && after.Contains("8.8.0"), after);
+
+                        string e2 = AutoUpdateBlocker.Enable(tmp);
+                        AutoUpdateState s2 = AutoUpdateBlocker.Inspect(tmp);
+                        Check("auto-update: enable ok", e2 == null && !s2.Blocked && s2.NeedUpdate, null);
+                        Check("auto-update: read-only removed", !s2.IsReadOnly, null);
+
+                        Check("auto-update: missing config is safe",
+                            AutoUpdateBlocker.Inspect(System.IO.Path.Combine(tmp, "nope")).Error != null, null);
+                        Check("auto-update: null root is safe",
+                            AutoUpdateBlocker.Inspect(null).Error != null, null);
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            // 先把只读去掉，否则目录删不掉
+                            string c2 = System.IO.Path.Combine(tmp, "launcher_config.json");
+                            if (System.IO.File.Exists(c2))
+                                System.IO.File.SetAttributes(c2, System.IO.FileAttributes.Normal);
+                            System.IO.Directory.Delete(tmp, true);
+                        }
+                        catch { }
+                    }
+                }
+
                 Check("process describe", ProcessKiller.Describe(procs) != null, null);
             }
             catch (Exception ex)

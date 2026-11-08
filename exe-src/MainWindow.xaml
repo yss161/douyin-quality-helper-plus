@@ -395,6 +395,38 @@
           </StackPanel>
         </Border>
 
+        <!-- 抖音自动更新 -->
+        <Border Style="{StaticResource Card}">
+          <StackPanel>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                <TextBlock Text="抖音自动更新" Style="{StaticResource SectionTitle}" Margin="0,0,0,4"/>
+                <TextBlock x:Name="AutoUpdateDetail" Text="待选择抖音位置" Style="{StaticResource Hint}"/>
+              </StackPanel>
+              <Button x:Name="BtnAutoUpdate" Grid.Column="1" Style="{StaticResource SmallBtn}"
+                      VerticalAlignment="Center" Content="禁止自动更新" IsEnabled="False"/>
+            </Grid>
+
+            <Border x:Name="AutoUpdateWarn" Background="#FFF8E6" BorderBrush="#F0DFA0"
+                    BorderThickness="1" CornerRadius="6" Padding="12,10" Margin="0,10,0,0"
+                    Visibility="Collapsed">
+              <StackPanel>
+                <TextBlock Text="有已下载的更新包待安装"
+                           FontSize="12" FontWeight="SemiBold" Foreground="#8A6100"/>
+                <TextBlock x:Name="AutoUpdateWarnDetail" Text="" FontSize="12"
+                           Foreground="#6B4A00" TextWrapping="Wrap" Margin="0,4,0,0"/>
+              </StackPanel>
+            </Border>
+
+            <TextBlock Style="{StaticResource Hint}" Margin="0,10,0,0"
+                       Text="抖音升级后会换版本号目录（如 8.7.0 → 8.8.0），新版目录里的 preload.js 是官方原版，画质补丁会一起消失。禁止自动更新可保住补丁。"/>
+          </StackPanel>
+        </Border>
+
         <!-- 软件更新 -->
         <Border Style="{StaticResource Card}">
           <Grid>

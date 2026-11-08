@@ -31,6 +31,10 @@ namespace DouyinQualityHelper
         Border UpdateBanner;
         TextBlock UpdateTitle, UpdateDesc, UpdateDetail;
         Button BtnCheckUpdate, BtnGoDownload, BtnDismissUpdate;
+        // 抖音自动更新
+        TextBlock AutoUpdateDetail, AutoUpdateWarnDetail;
+        Border AutoUpdateWarn;
+        Button BtnAutoUpdate;
 
         UpdateInfo _updateInfo;
         bool _updateChecking;
@@ -82,6 +86,11 @@ namespace DouyinQualityHelper
             BtnGoDownload = win.FindName("BtnGoDownload") as Button;
             BtnDismissUpdate = win.FindName("BtnDismissUpdate") as Button;
 
+            AutoUpdateDetail = win.FindName("AutoUpdateDetail") as TextBlock;
+            AutoUpdateWarn = win.FindName("AutoUpdateWarn") as Border;
+            AutoUpdateWarnDetail = win.FindName("AutoUpdateWarnDetail") as TextBlock;
+            BtnAutoUpdate = win.FindName("BtnAutoUpdate") as Button;
+
             if (StatusIcon == null || BtnInstall == null || LogBox == null)
                 throw new InvalidOperationException("gui xaml missing named controls");
 
@@ -110,6 +119,8 @@ namespace DouyinQualityHelper
                 BtnCheckUpdate.Click += (s, e) => { CheckUpdate(true); };
             if (BtnGoDownload != null)
                 BtnGoDownload.Click += (s, e) => { OpenReleasePage(); };
+            if (BtnAutoUpdate != null)
+                BtnAutoUpdate.Click += (s, e) => { ToggleAutoUpdate(); };
             if (BtnDismissUpdate != null)
                 BtnDismissUpdate.Click += (s, e) =>
                 {
@@ -140,7 +151,19 @@ namespace DouyinQualityHelper
                 }
 
                 SetInstallRoot(null, false);
-                SetStatus("?", "请先选择抖音程序", "点下面的「浏览…」，选中抖音安装目录里的 douyin.exe", "#D25F00");
+
+                // 恢复上次选的抖音目录：config.json 里存着就自动载入
+                string saved = Config.ReadDouyinDir();
+                if (!string.IsNullOrEmpty(saved) && Directory.Exists(saved) &&
+                    File.Exists(Path.Combine(saved, "launcher_config.json")))
+                {
+                    SetInstallRoot(saved, false);
+                    WriteLog("已恢复上次的抖音位置：" + saved, "ok");
+                }
+                else
+                {
+                    SetStatus("?", "请先选择抖音程序", "点下面的「浏览…」，选中抖音安装目录里的 douyin.exe", "#D25F00");
+                }
 
                 // 记住上次选的注入方式
                 ApplyModeToUi(Config.ReadInjectMode());
@@ -278,6 +301,7 @@ namespace DouyinQualityHelper
                 UpdateRunState();
                 // 未选目录时也要显示脚本状态：脚本包与抖音目录无关
                 UpdateScriptInfo();
+                RefreshAutoUpdateUi();
                 return;
             }
 
@@ -290,6 +314,7 @@ namespace DouyinQualityHelper
                 BtnRestore.IsEnabled = false;
                 BtnCheck.IsEnabled = false;
                 UpdateScriptInfo();
+                RefreshAutoUpdateUi();
                 return;
             }
 
@@ -352,6 +377,7 @@ namespace DouyinQualityHelper
 
             UpdateRunState();
             UpdateScriptInfo();
+            RefreshAutoUpdateUi();
 
             if (_versionInfo != null && !_versionInfo.IsSupported)
             {
@@ -1028,6 +1054,136 @@ namespace DouyinQualityHelper
 
                 ApplyIconFontTo(child, family);
             }
+        }
+
+        // ---------------------------------------------------------------------
+        // 抖音自动更新（launcher_config.json）
+        // ---------------------------------------------------------------------
+        /// <summary>把「禁止自动更新」的状态刷到界面。</summary>
+        void RefreshAutoUpdateUi()
+        {
+            if (AutoUpdateDetail == null || BtnAutoUpdate == null) return;
+
+            if (string.IsNullOrEmpty(_installRoot))
+            {
+                AutoUpdateDetail.Text = "待选择抖音位置";
+                AutoUpdateDetail.Foreground = new SolidColorBrush(Color.FromRgb(0x86, 0x90, 0x9C));
+                BtnAutoUpdate.Content = "禁止自动更新";
+                BtnAutoUpdate.IsEnabled = false;
+                if (AutoUpdateWarn != null) AutoUpdateWarn.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            AutoUpdateState st = AutoUpdateBlocker.Inspect(_installRoot);
+
+            if (st.Error != null && !st.ConfigFound)
+            {
+                AutoUpdateDetail.Text = st.Error;
+                AutoUpdateDetail.Foreground = new SolidColorBrush(Color.FromRgb(0xC4, 0x2B, 0x1C));
+                BtnAutoUpdate.Content = "禁止自动更新";
+                BtnAutoUpdate.IsEnabled = false;
+                if (AutoUpdateWarn != null) AutoUpdateWarn.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            AutoUpdateDetail.Text = st.Detail;
+
+            if (st.Blocked)
+            {
+                // 已禁止：绿色，按钮变成「恢复」
+                AutoUpdateDetail.Foreground = new SolidColorBrush(Color.FromRgb(0x0F, 0x7B, 0x0F));
+                BtnAutoUpdate.Content = "恢复自动更新";
+            }
+            else if (!st.NeedUpdate)
+            {
+                // 半吊子状态：值改了但没设只读
+                AutoUpdateDetail.Foreground = new SolidColorBrush(Color.FromRgb(0xCA, 0x50, 0x10));
+                BtnAutoUpdate.Content = "禁止自动更新";
+            }
+            else
+            {
+                AutoUpdateDetail.Foreground = new SolidColorBrush(Color.FromRgb(0x86, 0x90, 0x9C));
+                BtnAutoUpdate.Content = "禁止自动更新";
+            }
+
+            BtnAutoUpdate.IsEnabled = true;
+
+            // 有已下载的更新包时提醒
+            if (AutoUpdateWarn != null && AutoUpdateWarnDetail != null)
+            {
+                if (!st.Blocked && st.PendingFields.Count > 0)
+                {
+                    AutoUpdateWarn.Visibility = Visibility.Visible;
+                    AutoUpdateWarnDetail.Text =
+                        "抖音已经下载好更新包，下次启动可能会直接装上，补丁随之失效。" +
+                        Environment.NewLine +
+                        "点「禁止自动更新」会把这些待安装记录一并清掉。";
+                }
+                else
+                {
+                    AutoUpdateWarn.Visibility = Visibility.Collapsed;
+                }
+            }
+        }
+
+        /// <summary>禁止 / 恢复 抖音自动更新。</summary>
+        void ToggleAutoUpdate()
+        {
+            if (string.IsNullOrEmpty(_installRoot))
+            {
+                WriteLog("还没有选择抖音位置。", "warn");
+                return;
+            }
+
+            AutoUpdateState st = AutoUpdateBlocker.Inspect(_installRoot);
+            string err;
+
+            if (st.Blocked)
+            {
+                var ans = MessageBox.Show(_win,
+                    "要让抖音恢复自动检查更新吗？\n\n" +
+                    "注意：抖音一旦升级，会换一个新的版本号目录，" +
+                    "新版目录里的 preload.js 是官方原版，画质补丁会失效，" +
+                    "需要重新点一次「一键启用最高画质」。",
+                    "恢复自动更新", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                if (ans != MessageBoxResult.Yes) { WriteLog("已取消。"); return; }
+
+                err = AutoUpdateBlocker.Enable(_installRoot);
+                if (err != null)
+                {
+                    WriteLog("恢复自动更新失败：" + err, "err");
+                    MessageBox.Show(_win, err, "恢复失败", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                else
+                {
+                    WriteLog("已恢复抖音自动更新。", "ok");
+                }
+            }
+            else
+            {
+                var ans = MessageBox.Show(_win,
+                    "要禁止抖音自动更新吗？\n\n" +
+                    "会做三件事：\n" +
+                    "  1. need_update 改为 false\n" +
+                    "  2. 清空已下载更新包的记录\n" +
+                    "  3. 把 launcher_config.json 设为只读\n\n" +
+                    "这样抖音升级时就不会替换掉画质补丁。随时可以在这里恢复。",
+                    "禁止自动更新", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                if (ans != MessageBoxResult.Yes) { WriteLog("已取消。"); return; }
+
+                err = AutoUpdateBlocker.Disable(_installRoot);
+                if (err != null)
+                {
+                    WriteLog("禁止自动更新失败：" + err, "err");
+                    MessageBox.Show(_win, err, "禁止失败", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                else
+                {
+                    WriteLog("已禁止抖音自动更新（need_update=false，文件已只读）。", "ok");
+                }
+            }
+
+            RefreshAutoUpdateUi();
         }
 
         // ---------------------------------------------------------------------

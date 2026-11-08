@@ -98,6 +98,48 @@ node tools\build-userscript.js        # GM 层 + 依赖 + 原版脚本 -> bundle
 
 ---
 
+## 禁止抖音自动更新
+
+抖音每次升级都会换一个版本号目录（`8.7.0` → `8.8.0`），新版目录里的 `preload.js`
+是官方原版，**画质补丁会一起消失**。禁止自动更新就能保住补丁。
+
+界面上的「抖音自动更新」卡片会实时显示四种状态：
+
+| 状态 | 显示 |
+|---|---|
+| 已禁止 | 绿色「已禁止自动更新（need_update=false 且文件只读）」+「恢复自动更新」 |
+| 半吊子 | 橙色「need_update 已是 false，但文件没设只读，抖音可能改回去」 |
+| 允许更新 | 灰色「允许自动更新」+「禁止自动更新」 |
+| 有更新包 | 黄色提示条：「抖音已经下载好更新包，下次启动可能会直接装上」 |
+
+点「禁止自动更新」会做三件事：
+
+1. `launcher_config.json` 里 `need_update` 改成 `false`
+2. 清空 `installer_path` / `mid_path` / `new_mid_path` / `new_path`（已下载的更新包记录）
+3. 把该文件设为**只读**，防止抖音或 guard 进程改回去
+
+> 只改 `need_update` 不设只读是不够的 —— 抖音下次启动可能直接改回来。
+> 这就是「半吊子状态」专门被标出来的原因：很多人手工改过配置但忘了设只读，
+> 看着 `need_update: false` 以为已经生效，其实抖音随时能改回去。
+
+需要写 `C:\Program Files` 下的文件，所以要用管理员身份运行。
+原始配置会备份到 `backup/launcher_config.json.orig`。
+
+命令行也可以：
+
+```powershell
+抖-画质助手.exe --autoupdate status            # 查看状态
+抖-画质助手.exe --autoupdate disable           # 禁止自动更新
+抖-画质助手.exe --autoupdate enable            # 恢复自动更新
+# 不给 --root 时用界面里记住的目录；也可以 --root "D:\douyin"
+```
+
+> 网上有些教程说在 Windows 应用商店关闭「静默安装更新包」。那是**系统级**设置，
+> 会影响所有商店应用，本工具不去改它。桌面安装版用不上那条，
+> 改 `launcher_config.json` 才是对应做法。
+
+---
+
 ## 原理
 
 抖音 PC 版是 **Electron 外壳 + 内嵌 `www.douyin.com` 网页播放器**。网页播放器构建播放配置时
